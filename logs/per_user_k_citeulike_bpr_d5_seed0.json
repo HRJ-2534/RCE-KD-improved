@@ -1,0 +1,283 @@
+{
+  "experiment": {
+    "dataset": "citeulike",
+    "teacher": "bpr",
+    "student": "bpr",
+    "student_dim": 5,
+    "K_values": [
+      20,
+      50,
+      100
+    ],
+    "L": 50,
+    "seed": 0,
+    "anchor_K": 100,
+    "eval_K": 20,
+    "difficulty": "mean final top-anchor overlap across compared K checkpoints",
+    "checkpoints": {
+      "20": "checkpoints/citeulike/bpr/rcekd-5_capacity_d5_k20_l50_seed0/BEST_EPOCH.pt",
+      "50": "checkpoints/citeulike/bpr/rcekd-5_capacity_d5_k50_l50_seed0/BEST_EPOCH.pt",
+      "100": "checkpoints/citeulike/bpr/rcekd-5_capacity_d5_k100_l50_seed0/BEST_EPOCH.pt"
+    }
+  },
+  "aggregate_metrics": {
+    "20": {
+      "valid": {
+        "Recall@20": 0.07101815891938346,
+        "NDCG@20": 0.03557660530815767
+      },
+      "test": {
+        "Recall@20": 0.029495971613517236,
+        "NDCG@20": 0.014064259513647374
+      }
+    },
+    "50": {
+      "valid": {
+        "Recall@20": 0.06879096003088547,
+        "NDCG@20": 0.03462675216135815
+      },
+      "test": {
+        "Recall@20": 0.028281226673695366,
+        "NDCG@20": 0.013364986244747858
+      }
+    },
+    "100": {
+      "valid": {
+        "Recall@20": 0.07404545146170338,
+        "NDCG@20": 0.03603066380180596
+      },
+      "test": {
+        "Recall@20": 0.02893785388995199,
+        "NDCG@20": 0.013250317411602023
+      }
+    }
+  },
+  "per_user_validation_winners": {
+    "all_models_zero_rate": 0.8720061314428051,
+    "positive_but_tied_rate": 0.028357922973749762,
+    "unique_winner_rate": 0.0996359455834451,
+    "unique_winner_counts": {
+      "20": 197,
+      "50": 154,
+      "100": 169
+    }
+  },
+  "groups": [
+    {
+      "name": "low",
+      "num_users": 1740,
+      "selected_K_from_validation": 50,
+      "validation": {
+        "20": {
+          "Recall@20": 0.023164840693576327,
+          "NDCG@20": 0.01306820666759104
+        },
+        "50": {
+          "Recall@20": 0.025643181956400345,
+          "NDCG@20": 0.016300803144825515
+        },
+        "100": {
+          "Recall@20": 0.028953253111299086,
+          "NDCG@20": 0.016169260308519794
+        }
+      },
+      "test": {
+        "20": {
+          "Recall@20": 0.012164750957854405,
+          "NDCG@20": 0.007535091542641943
+        },
+        "50": {
+          "Recall@20": 0.009061302681992336,
+          "NDCG@20": 0.00566970808955485
+        },
+        "100": {
+          "Recall@20": 0.011288998357963875,
+          "NDCG@20": 0.006747651091308397
+        }
+      },
+      "validation_pairwise_NDCG_deltas": {
+        "K50-K20": {
+          "mean": 0.0032325964772344723,
+          "ci95": [
+            0.0003566123348676254,
+            0.006084079736570548
+          ]
+        },
+        "K100-K20": {
+          "mean": 0.003101053640928756,
+          "ci95": [
+            -4.260090454068621e-05,
+            0.006329992166972787
+          ]
+        },
+        "K100-K50": {
+          "mean": -0.00013154283630571604,
+          "ci95": [
+            -0.003263661783858961,
+            0.00296109422399096
+          ]
+        }
+      },
+      "overlap": {
+        "mean": 0.18857088122605364,
+        "min": 0.0,
+        "max": 0.3433333333333333
+      }
+    },
+    {
+      "name": "middle",
+      "num_users": 1740,
+      "selected_K_from_validation": 20,
+      "validation": {
+        "20": {
+          "Recall@20": 0.060576878188789776,
+          "NDCG@20": 0.031723269728929034
+        },
+        "50": {
+          "Recall@20": 0.050667941609294324,
+          "NDCG@20": 0.02643376080796117
+        },
+        "100": {
+          "Recall@20": 0.05778106289297449,
+          "NDCG@20": 0.029738933310964652
+        }
+      },
+      "test": {
+        "20": {
+          "Recall@20": 0.027058374725717524,
+          "NDCG@20": 0.012916810641672206
+        },
+        "50": {
+          "Recall@20": 0.02643180574215057,
+          "NDCG@20": 0.012414497274725739
+        },
+        "100": {
+          "Recall@20": 0.024619636429981256,
+          "NDCG@20": 0.011824065983507185
+        }
+      },
+      "validation_pairwise_NDCG_deltas": {
+        "K50-K20": {
+          "mean": -0.005289508920967859,
+          "ci95": [
+            -0.008764470308311421,
+            -0.001974480520223836
+          ]
+        },
+        "K100-K20": {
+          "mean": -0.0019843364179643803,
+          "ci95": [
+            -0.004997984182604609,
+            0.0011349412098750687
+          ]
+        },
+        "K100-K50": {
+          "mean": 0.003305172503003479,
+          "ci95": [
+            0.00037578203673666754,
+            0.006393874909632552
+          ]
+        }
+      },
+      "overlap": {
+        "mean": 0.4393888888888889,
+        "min": 0.3433333333333333,
+        "max": 0.5233333333333333
+      }
+    },
+    {
+      "name": "high",
+      "num_users": 1739,
+      "selected_K_from_validation": 100,
+      "validation": {
+        "20": {
+          "Recall@20": 0.12934627978432736,
+          "NDCG@20": 0.061953498662064364
+        },
+        "50": {
+          "Recall@20": 0.13009698987744828,
+          "NDCG@20": 0.06116094206571558
+        },
+        "100": {
+          "Recall@20": 0.13543732106451636,
+          "NDCG@20": 0.062198836965912815
+        }
+      },
+      "test": {
+        "20": {
+          "Recall@20": 0.049276157079661466,
+          "NDCG@20": 0.021745290742391617
+        },
+        "50": {
+          "Recall@20": 0.04936268737895772,
+          "NDCG@20": 0.022015725058936658
+        },
+        "100": {
+          "Recall@20": 0.0509175588962823,
+          "NDCG@20": 0.021183794629656034
+        }
+      },
+      "validation_pairwise_NDCG_deltas": {
+        "K50-K20": {
+          "mean": -0.0007925565963487951,
+          "ci95": [
+            -0.004240126147703367,
+            0.002431376453060066
+          ]
+        },
+        "K100-K20": {
+          "mean": 0.0002453383038484372,
+          "ci95": [
+            -0.0027319009814661083,
+            0.0033211087116430775
+          ]
+        },
+        "K100-K50": {
+          "mean": 0.001037894900197232,
+          "ci95": [
+            -0.0019096252758025202,
+            0.003961210401701369
+          ]
+        }
+      },
+      "overlap": {
+        "mean": 0.622242668200115,
+        "min": 0.5233333333333333,
+        "max": 0.8066666666666666
+      }
+    }
+  ],
+  "validation_selected_routing": {
+    "best_fixed_K_selected_from_validation": 100,
+    "best_fixed": {
+      "valid": {
+        "Recall@20": 0.07404545146170338,
+        "NDCG@20": 0.03603066380180596
+      },
+      "test": {
+        "Recall@20": 0.02893785388995199,
+        "NDCG@20": 0.013250317411602023
+      }
+    },
+    "group_routed": {
+      "valid": {
+        "Recall@20": 0.0738739999969007,
+        "NDCG@20": 0.03673609202606922
+      },
+      "test": {
+        "Recall@20": 0.029008214908995987,
+        "NDCG@20": 0.013255252242442407
+      }
+    },
+    "test_gain_over_best_fixed": {
+      "Recall@20": 7.036101904399697e-05,
+      "NDCG@20": 4.93483084038418e-06
+    }
+  },
+  "limitations": [
+    "Difficulty is measured after training and is descriptive, not an online policy state.",
+    "Each checkpoint was already selected using validation; routing reuses validation.",
+    "Per-user held-out feedback is sparse; use group aggregates and paired intervals, not raw argmax counts alone.",
+    "A routed mixture of fixed-K models does not prove a single dynamically trained model will improve."
+  ]
+}
