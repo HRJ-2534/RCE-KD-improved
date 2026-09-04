@@ -13,3 +13,4 @@ bpr:
   sample_rank: False
   arce_sampler: marginal
   arce_mix_alpha: 0.9
+  arce_gamma_mode: sample_overlap

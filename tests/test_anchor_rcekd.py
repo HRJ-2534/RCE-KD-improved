@@ -8,6 +8,7 @@ from torch import nn
 
 from modeling.KD.anchor_rce import (
     ARCEKD,
+    calibrate_exponential_gamma,
     prepare_teacher_anchors,
     rowwise_isin,
     sample_anchor_preserving,
@@ -27,7 +28,7 @@ class TinyBackbone(nn.Module):
         return self.score_parameters[users].gather(1, items)
 
 
-def make_model(sampler):
+def make_model(sampler, gamma_mode="sample_overlap"):
     student_scores = torch.tensor([
         [9., 8., 7., 6., 5., 4., 3., 2.],
         [1., 3., 5., 7., 9., 8., 6., 4.],
@@ -45,16 +46,25 @@ def make_model(sampler):
     model.K, model.L, model.mxK = 2, 2, 5
     model.T, model.tau, model.beta = 10., 1., 3.
     model.arce_sampler, model.arce_mix_alpha = sampler, .9
+    model.arce_gamma_mode = gamma_mode
     with contextlib.redirect_stdout(io.StringIO()):
         model.T_topk_dict = model.get_topk_dict(model.teacher, model.K)
     users = torch.arange(model.num_users)
     model.T_topk_scores = model.teacher.forward_multi_items(
         users, model.T_topk_dict,
     )
+    model.T_topk_prob = torch.softmax(model.T_topk_scores, dim=1)
     return model
 
 
 class AnchorRCEKDTests(unittest.TestCase):
+    def test_calibrated_gamma_matches_target_mean_without_changing_order(self):
+        trusted = torch.tensor([.1, .3, .6, .9], dtype=torch.float64)
+        gamma, beta = calibrate_exponential_gamma(trusted, .4)
+        torch.testing.assert_close(gamma.mean(), torch.tensor(.4, dtype=torch.float64))
+        self.assertGreater(beta.item(), 0.)
+        self.assertTrue(torch.all(gamma[:-1] > gamma[1:]))
+
     def test_topm_marginal_probabilities_are_finite_supported_and_normalized(self):
         scores_m = torch.tensor([[6., 5., 4., 3., 2.]])
         student_topm = torch.tensor([[0, 1, 2, 3, 4]])
@@ -132,6 +142,46 @@ class AnchorRCEKDTests(unittest.TestCase):
                 self.assertTrue(torch.isfinite(loss))
                 loss.backward()
                 self.assertTrue(torch.isfinite(model.student.score_parameters.grad).all())
+
+    def test_mass_gamma_preserves_mean_when_calibrated_and_changes_allocation(self):
+        sample_model = make_model("marginal", "sample_overlap")
+        calibrated_model = make_model("marginal", "teacher_mass_calibrated")
+        torch.manual_seed(53)
+        sample_model.do_something_in_each_epoch(0)
+        torch.manual_seed(53)
+        diagnostics = calibrated_model.do_something_in_each_epoch(0)
+        torch.testing.assert_close(
+            calibrated_model.arce_gamma.mean(),
+            sample_model.arce_gamma.mean(),
+        )
+        self.assertEqual(
+            diagnostics["arce_gamma_mode"], "teacher_mass_calibrated",
+        )
+        users = torch.tensor([0, 1])
+        loss = calibrated_model.get_loss(users)
+        self.assertTrue(torch.isfinite(loss))
+        loss.backward()
+        self.assertTrue(
+            torch.isfinite(calibrated_model.student.score_parameters.grad).all()
+        )
+
+    def test_gamma_override_changes_only_the_rcekd_mixture_weight(self):
+        reference = make_model("marginal", "sample_overlap")
+        overridden = make_model("marginal", "teacher_mass")
+        torch.manual_seed(71)
+        reference.do_something_in_each_epoch(0)
+        torch.manual_seed(71)
+        overridden.do_something_in_each_epoch(0)
+        self.assertTrue(torch.equal(
+            reference.interesting_items, overridden.interesting_items,
+        ))
+        # Force the copied gamma branch to use exactly the original weights.
+        # Identical outputs then prove that neither CE term was altered.
+        overridden.arce_gamma = reference.arce_gamma.clone()
+        users = torch.tensor([0, 1])
+        expected = reference.get_loss(users)
+        actual = overridden.get_loss(users)
+        torch.testing.assert_close(actual, expected, rtol=0., atol=0.)
 
     def test_anchor_fill_uses_teacher_excluded_blockers(self):
         student_topm = torch.tensor([[0, 1, 2, 3, 4]])

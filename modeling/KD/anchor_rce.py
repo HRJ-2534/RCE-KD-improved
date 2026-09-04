@@ -6,6 +6,7 @@ the start of each epoch.
 """
 
 import torch
+import torch.nn.functional as F
 
 from .playground import RCEKD
 
@@ -166,6 +167,46 @@ def probability_entropy(probabilities):
     return -(probabilities * safe_log).sum(dim=1)
 
 
+def calibrate_exponential_gamma(trusted_mass, target_mean, iterations=48):
+    """Match mean(exp(-beta * trusted_mass)) to ``target_mean``.
+
+    The bisection is deterministic and preserves the original epoch-level
+    average L2 weight.  Only its allocation across users changes.  If users
+    with exactly zero trusted mass make the requested mean unattainable, the
+    closest attainable boundary is returned explicitly.
+    """
+    if trusted_mass.ndim != 1:
+        raise ValueError("trusted_mass must be a rank-1 tensor")
+    if trusted_mass.numel() == 0:
+        raise ValueError("trusted_mass must be non-empty")
+    # Solve the single scalar in CPU float64 after one device transfer. Doing
+    # scalar-condition bisection on CUDA would force a host synchronization at
+    # every iteration and recreate the utilization stalls this project avoids.
+    work_mass = trusted_mass.detach().double().cpu()
+    target = torch.as_tensor(target_mean).detach().double().cpu().clamp(0., 1.)
+    zero_fraction = (work_mass == 0.).double().mean()
+    attainable_target = target.clamp_min(zero_fraction)
+
+    low = work_mass.new_tensor(0.)
+    high = work_mass.new_tensor(1.)
+    for _ in range(32):
+        if torch.exp(-high * work_mass).mean() <= attainable_target:
+            break
+        high = high * 2.
+    for _ in range(iterations):
+        middle = (low + high) / 2.
+        current = torch.exp(-middle * work_mass).mean()
+        if current > attainable_target:
+            low = middle
+        else:
+            high = middle
+    beta = ((low + high) / 2.).to(
+        device=trusted_mass.device, dtype=trusted_mass.dtype,
+    )
+    gamma = torch.exp(-beta * trusted_mass)
+    return gamma, beta
+
+
 class ARCEKD(RCEKD):
     """RCE-KD with Q1 anchors and count or Top-M marginal blocker sampling."""
 
@@ -183,11 +224,20 @@ class ARCEKD(RCEKD):
                 "ARCE-KD requires mkd_L <= mkd_mxK - mkd_K so every user "
                 "has enough non-teacher blocker candidates"
             )
+        self.arce_gamma_mode = getattr(args, "arce_gamma_mode", "sample_overlap")
+        if self.arce_gamma_mode not in (
+            "sample_overlap", "teacher_mass", "teacher_mass_calibrated",
+        ):
+            raise ValueError(
+                "arce_gamma_mode must be sample_overlap, teacher_mass, or "
+                "teacher_mass_calibrated"
+            )
         with torch.no_grad():
             users = torch.arange(self.num_users, device=self.T_topk_dict.device)
             self.T_topk_scores = self.teacher.forward_multi_items(
                 users, self.T_topk_dict,
             ) / self.tau
+            self.T_topk_prob = torch.softmax(self.T_topk_scores, dim=1)
 
     def do_something_in_each_epoch(self, epoch):
         del epoch
@@ -224,10 +274,25 @@ class ARCEKD(RCEKD):
             sampled_teacher = rowwise_isin(
                 self.T_topk_dict, self.interesting_items,
             ).float().mean(dim=1)
-            gamma = torch.exp(-self.beta * sampled_teacher)
+            sample_gamma = torch.exp(-self.beta * sampled_teacher)
+            teacher_missing_mass = (
+                self.T_topk_prob * q2_active
+            ).sum(dim=1)
+            trusted_teacher_mass = 1. - teacher_missing_mass
+            effective_beta = student_score_mat.new_tensor(self.beta)
+            if self.arce_gamma_mode == "sample_overlap":
+                gamma = sample_gamma
+            elif self.arce_gamma_mode == "teacher_mass":
+                gamma = torch.exp(-self.beta * trusted_teacher_mass)
+            else:
+                gamma, effective_beta = calibrate_exponential_gamma(
+                    trusted_teacher_mass, sample_gamma.mean(),
+                )
+            self.arce_gamma = gamma
             anchor_count = anchor_active.sum(dim=1).float()
             entropy = probability_entropy(blocker_probabilities)
             return {
+                "arce_gamma_mode": self.arce_gamma_mode,
                 "arce_anchor_count_mean": anchor_count.mean().item(),
                 "arce_blocker_budget_mean": (self.L - anchor_count).mean().item(),
                 "arce_sampled_teacher_overlap_mean": sampled_teacher.mean().item(),
@@ -235,5 +300,72 @@ class ARCEKD(RCEKD):
                 "arce_gamma_std": gamma.std(unbiased=False).item(),
                 "arce_gamma_min": gamma.min().item(),
                 "arce_gamma_max": gamma.max().item(),
+                "arce_sample_gamma_mean": sample_gamma.mean().item(),
+                "arce_gamma_effective_beta": effective_beta.item(),
+                "arce_teacher_missing_mass_mean": teacher_missing_mass.mean().item(),
+                "arce_teacher_missing_mass_std": teacher_missing_mass.std(
+                    unbiased=False,
+                ).item(),
                 "arce_blocker_entropy_mean": entropy.mean().item(),
             }
+
+    def get_loss(self, *params):
+        if self.arce_gamma_mode == "sample_overlap":
+            return super().get_loss(*params)
+
+        # This is RCEKD.get_loss verbatim except that the L2 mixture weight is
+        # the precomputed teacher-mass gamma. Keeping the two CE terms exactly
+        # unchanged isolates the gamma intervention.
+        batch_users = params[0]
+        itemS = self.itemS[batch_users]
+        itemT = self.T_topk_dict[batch_users]
+        item_interesting = self.interesting_items[batch_users]
+        logit_S_itemS = self.student.forward_multi_items(batch_users, itemS) / self.tau
+        logit_S_itemT = self.student.forward_multi_items(batch_users, itemT) / self.tau
+        logit_S_interesting = self.student.forward_multi_items(
+            batch_users, item_interesting,
+        ) / self.tau
+        logit_T_itemS = self.teacher.forward_multi_items(batch_users, itemS) / self.tau
+        logit_T_itemT = self.teacher.forward_multi_items(batch_users, itemT) / self.tau
+
+        exp_logit_T_itemS = torch.exp(logit_T_itemS)
+        Z_T = exp_logit_T_itemS.sum(-1, keepdim=True)
+        prob_T_itemS = exp_logit_T_itemS / Z_T
+        loss_itemS = F.cross_entropy(
+            logit_S_itemS, prob_T_itemS, reduction="none",
+        )
+
+        logit_T_interesting = self.teacher.forward_multi_items(
+            batch_users, item_interesting,
+        ) / self.tau
+        exp_logit_T_interesting = torch.exp(logit_T_interesting)
+        exp_logit_T_itemT = torch.exp(logit_T_itemT)
+        mask = self.rowwise_isin(itemT, item_interesting)
+        exp_logit_T_itemT[mask] = 0
+        mask2 = self.rowwise_isin(itemT, itemS)
+        exp_logit_T_itemT[mask2] = 0
+        Z_T = (
+            exp_logit_T_interesting.sum(-1, keepdim=True)
+            + exp_logit_T_itemT.sum(-1, keepdim=True)
+        )
+        prob_T_all = torch.cat([
+            exp_logit_T_interesting, exp_logit_T_itemT,
+        ], dim=-1) / Z_T
+        exp_logit_S_itemT = torch.exp(logit_S_itemT)
+        exp_logit_S_itemT = (
+            exp_logit_S_itemT * (1. - mask.float()) * (1. - mask2.float())
+        )
+        exp_logit_S_interesting = torch.exp(logit_S_interesting)
+        Z_S = (
+            exp_logit_S_interesting.sum(-1, keepdim=True)
+            + exp_logit_S_itemT.sum(-1, keepdim=True)
+        )
+        logit_S_all = torch.cat([
+            logit_S_interesting, logit_S_itemT,
+        ], dim=-1)
+        loss_itemT = -(
+            prob_T_all * (logit_S_all - torch.log(Z_S))
+        ).sum(-1)
+
+        weight = self.arce_gamma[batch_users]
+        return ((1. - weight) * loss_itemS + weight * loss_itemT).sum()
