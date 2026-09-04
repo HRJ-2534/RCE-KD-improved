@@ -34,6 +34,30 @@ def normalize_with_uniform_mixture(raw_weight, eligible, mix_alpha):
     return mix_alpha * proposal + (1. - mix_alpha) * uniform
 
 
+def power_sharpen_probabilities(probabilities, power):
+    """Sharpen a categorical distribution without changing its support.
+
+    ``power=1`` returns the input tensor itself so the existing marginal
+    sampler remains bit-for-bit unchanged.  Larger powers continuously move
+    sampling toward deterministic Top-L while retaining stochastic support.
+    """
+    if power <= 0.:
+        raise ValueError("arce_sampling_power must be positive")
+    if power == 1.:
+        return probabilities
+    positive = probabilities > 0.
+    if (~positive.any(dim=1)).any():
+        raise ValueError("every proposal row must contain positive mass")
+    logits = torch.where(
+        positive, probabilities.clamp_min(
+            torch.finfo(probabilities.dtype).tiny
+        ).log() * power,
+        torch.full_like(probabilities, -float("inf")),
+    )
+    sharpened = torch.softmax(logits, dim=1)
+    return torch.where(positive, sharpened, torch.zeros_like(sharpened))
+
+
 def original_count_blocker_probabilities(teacher_topk, student_topm,
                                          count_temperature):
     """Original RCE count weights, renormalized after removing teacher items."""
@@ -306,6 +330,11 @@ class ARCEKD(RCEKD):
         self.arce_mix_alpha = float(getattr(args, "arce_mix_alpha", .9))
         if not 0. <= self.arce_mix_alpha <= 1.:
             raise ValueError("arce_mix_alpha must be between zero and one")
+        self.arce_sampling_power = float(
+            getattr(args, "arce_sampling_power", 1.)
+        )
+        if self.arce_sampling_power <= 0.:
+            raise ValueError("arce_sampling_power must be positive")
         if self.L > self.mxK - self.K:
             raise ValueError(
                 "ARCE-KD requires mkd_L <= mkd_mxK - mkd_K so every user "
@@ -357,6 +386,9 @@ class ARCEKD(RCEKD):
                     student_scores_m, student_scores_t, self.T_topk_scores,
                     self.T_topk_dict, student_topm, q2_active,
                     self.arce_mix_alpha, closure_statistics,
+                )
+                blocker_probabilities = power_sharpen_probabilities(
+                    blocker_probabilities, self.arce_sampling_power,
                 )
 
             anchor_positions, anchor_active = prepare_teacher_anchors(
@@ -411,6 +443,7 @@ class ARCEKD(RCEKD):
             entropy = probability_entropy(blocker_probabilities)
             return {
                 "arce_sampler": self.arce_sampler,
+                "arce_sampling_power": self.arce_sampling_power,
                 "arce_gamma_mode": self.arce_gamma_mode,
                 "arce_anchor_count_mean": anchor_count.mean().item(),
                 "arce_blocker_budget_mean": (self.L - anchor_count).mean().item(),

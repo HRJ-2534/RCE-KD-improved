@@ -10,6 +10,7 @@ from modeling.KD.anchor_rce import (
     ARCEKD,
     calibrate_exponential_gamma,
     prepare_teacher_anchors,
+    power_sharpen_probabilities,
     redistribute_gamma_by_difficulty,
     rowwise_isin,
     sample_anchor_preserving,
@@ -50,6 +51,7 @@ def make_model(sampler, gamma_mode="sample_overlap"):
     model.K, model.L, model.mxK = 2, 2, 5
     model.T, model.tau, model.beta = 10., 1., 3.
     model.arce_sampler, model.arce_mix_alpha = sampler, .9
+    model.arce_sampling_power = 1.
     model.arce_gamma_mode = gamma_mode
     with contextlib.redirect_stdout(io.StringIO()):
         model.T_topk_dict = model.get_topk_dict(model.teacher, model.K)
@@ -62,6 +64,18 @@ def make_model(sampler, gamma_mode="sample_overlap"):
 
 
 class AnchorRCEKDTests(unittest.TestCase):
+    def test_sampling_power_one_is_exact_identity_and_larger_power_sharpens(self):
+        probabilities = torch.tensor([
+            [.5, .3, .2, 0.], [.1, .2, .7, 0.],
+        ])
+        identity = power_sharpen_probabilities(probabilities, 1.)
+        self.assertIs(identity, probabilities)
+        sharpened = power_sharpen_probabilities(probabilities, 2.)
+        torch.testing.assert_close(sharpened.sum(dim=1), torch.ones(2))
+        self.assertTrue(torch.equal(sharpened[:, 3], torch.zeros(2)))
+        self.assertGreater(sharpened[0, 0], probabilities[0, 0])
+        self.assertGreater(sharpened[1, 2], probabilities[1, 2])
+
     def test_calibrated_gamma_matches_target_mean_without_changing_order(self):
         trusted = torch.tensor([.1, .3, .6, .9], dtype=torch.float64)
         gamma, beta = calibrate_exponential_gamma(trusted, .4)
