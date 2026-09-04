@@ -35,7 +35,7 @@ def main(args):
         validset_T = implicit_CF_dataset_test(num_users, num_items, valid_dict)
         testset_T = implicit_CF_dataset_test(num_users, num_items, test_dict)
 
-    train_loader = DataLoader(trainset, batch_size=args.batch_size, shuffle=True)
+    train_loader = DataLoader(trainset, batch_size=args.batch_size, shuffle=True, pin_memory=True)
 
     # Backbone
     all_backbones = [e.lower() for e in dir(backbone)]
@@ -114,10 +114,10 @@ def main(args):
             # Forward Pass
             model.train()
             try:
-                data = [data.cuda()]
+                data = [data.cuda(non_blocking=True)]
             except:
                 for i in range(len(data)):
-                    try: data[i] = data[i].cuda()
+                    try: data[i] = data[i].cuda(non_blocking=True)
                     except: pass
             loss, base_loss, kd_loss = model(*data)
 

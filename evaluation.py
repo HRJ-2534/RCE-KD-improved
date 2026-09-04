@@ -50,6 +50,23 @@ class Evaluator:
             eval_dict[mode] = deepcopy(metric_dict)
         return eval_dict
 
+    @staticmethod
+    def _mask_training_items(score_mat, batch_user, train_dict):
+        """Apply the original -1e10 mask with one batched indexed write.
+
+        Build sparse coordinates on CPU, rather than launching a GPU write
+        (and transferring item indices) separately for every user. Keep the
+        exact batch ordering, item IDs and masking value used by evaluation.
+        """
+        positives = [train_dict[user] for user in batch_user.tolist()]
+        if not positives:
+            return
+        lengths = torch.tensor([items.numel() for items in positives], dtype=torch.long)
+        rows = torch.repeat_interleave(torch.arange(len(positives)), lengths)
+        columns = torch.cat(positives).long()
+        device = score_mat.device
+        score_mat[rows.to(device), columns.to(device)] = -1e10
+
     def evaluate_rec(self, model, train_loader, valid_dataset, test_dataset):
         """
         {
@@ -76,9 +93,7 @@ class Evaluator:
         topK_items = torch.zeros((num_users, self.K_max), dtype=torch.long)
         for batch_user in test_loader:
             score_mat = model.get_ratings(batch_user)
-            for idx, user in enumerate(batch_user):
-                pos = train_dict[user.item()]
-                score_mat[idx, pos] = -1e10
+            self._mask_training_items(score_mat, batch_user, train_dict)
             _, sorted_mat = torch.topk(score_mat, k=self.K_max, dim=1)
             topK_items[batch_user, :] = sorted_mat.detach().cpu()
         

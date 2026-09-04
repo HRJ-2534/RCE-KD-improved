@@ -26,7 +26,7 @@ class RCEKD(BaseKD4Rec):
         with torch.no_grad():
             inter_mat = model.get_all_ratings()
             _, topk_dict = torch.topk(inter_mat, mxK, dim=-1)
-        return topk_dict.type(torch.LongTensor).cuda()
+        return topk_dict.long()
 
     # https://discuss.pytorch.org/t/find-indexes-of-elements-from-one-tensor-that-matches-in-another-tensor/147482/3
     def rowwise_index(self, source, target):
@@ -37,19 +37,17 @@ class RCEKD(BaseKD4Rec):
     def do_something_in_each_epoch(self, epoch):
         with torch.no_grad():
             S_topk_dict = self.get_topk_dict(self.student, self.mxK)
-            self.interesting_items = torch.zeros((self.num_users, self.L)).long()
             if self.sample_rank:
+                # Keep rank sampling on CPU to preserve its RNG stream.
                 samples = torch.multinomial(self.ranking_mat, self.L, replacement=False)
             else:
-                weight_matrix = torch.zeros((self.num_users, self.mxK)).cuda()
+                weight_matrix = torch.zeros((self.num_users, self.mxK), device=S_topk_dict.device)
                 itemT_rankS = self.rowwise_index(self.T_topk_dict, S_topk_dict)
                 weight_matrix[itemT_rankS[:, 0], itemT_rankS[:, 1]] += 1
-                weight_matrix = torch.minimum(torch.cumsum(weight_matrix.flip(-1), dim=-1).flip(-1), torch.tensor(50.))
+                weight_matrix = torch.minimum(torch.cumsum(weight_matrix.flip(-1), dim=-1).flip(-1), weight_matrix.new_tensor(50.))
                 weight_matrix = torch.exp((weight_matrix + 1) / self.T)
                 samples = torch.multinomial(weight_matrix, self.L, replacement=False)
-            for user in range(self.num_users):
-                self.interesting_items[user] = S_topk_dict[user][samples[user]]
-            self.interesting_items = self.interesting_items.cuda()
+            self.interesting_items = torch.gather(S_topk_dict, 1, samples.to(S_topk_dict.device))
             self.itemS = S_topk_dict[:, :self.K]
 
     # https://stackoverflow.com/questions/74946537/can-i-apply-torch-isin-to-each-row-in-2d-tensor-without-loop
@@ -175,7 +173,7 @@ class SRCEKD(BaseKD4Rec):
         with torch.no_grad():
             inter_mat = model.get_all_ratings()
             _, topk_dict = torch.topk(inter_mat, mxK, dim=-1)
-        return topk_dict.type(torch.LongTensor).cuda()
+        return topk_dict.long()
 
     def do_something_in_each_epoch(self, epoch):
         with torch.no_grad():
@@ -191,22 +189,21 @@ class SRCEKD(BaseKD4Rec):
                                               torch.full_like(pos_in_mxK, self.mxK))
             # rank-weighted closure samples from the student's top-mxK
             # (same sampling strategy as RCE-KD)
-            weight_matrix = torch.zeros((self.num_users, self.mxK)).cuda()
+            weight_matrix = torch.zeros((self.num_users, self.mxK), device=S_topk_dict.device)
             itemT_rankS = self.rowwise_index(self.T_topk_dict, S_topk_dict)
             weight_matrix[itemT_rankS[:, 0], itemT_rankS[:, 1]] += 1
-            weight_matrix = torch.minimum(torch.cumsum(weight_matrix.flip(-1), dim=-1).flip(-1), torch.tensor(50.))
+            weight_matrix = torch.minimum(torch.cumsum(weight_matrix.flip(-1), dim=-1).flip(-1), weight_matrix.new_tensor(50.))
             weight_matrix = torch.exp((weight_matrix + 1) / self.T)
             samples = torch.multinomial(weight_matrix, self.L, replacement=False)
-            self.interesting_items = torch.zeros((self.num_users, self.L)).long()
-            for user in range(self.num_users):
-                self.interesting_items[user] = S_topk_dict[user][samples[user]]
-            self.interesting_items = self.interesting_items.cuda()
+            self.interesting_items = torch.gather(S_topk_dict, 1, samples)
             # uniform tail samples, covering items beyond the student's top-mxK
             if self.Lu > 0:
+                # Do not move randint to CUDA: that would change the samples
+                # and both RNG streams, even with the same experiment seed.
                 self.uniform_items = torch.randint(0, self.num_items,
-                                                   (self.num_users, self.Lu)).cuda()
+                                                   (self.num_users, self.Lu)).to(S_topk_dict.device)
             else:
-                self.uniform_items = torch.zeros((self.num_users, 0)).long().cuda()
+                self.uniform_items = S_topk_dict.new_empty((self.num_users, 0))
             self.itemS = S_topk_dict[:, :self.K]
 
     # https://discuss.pytorch.org/t/find-indexes-of-elements-from-one-tensor-that-matches-in-another-tensor/147482/3
