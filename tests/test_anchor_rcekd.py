@@ -13,6 +13,7 @@ from modeling.KD.anchor_rce import (
     redistribute_gamma_by_difficulty,
     rowwise_isin,
     sample_anchor_preserving,
+    select_anchor_preserving_topl,
     topm_closure_difficulty,
     topm_closure_statistics,
     topm_marginal_blocker_probabilities,
@@ -170,8 +171,8 @@ class AnchorRCEKDTests(unittest.TestCase):
         self.assertGreaterEqual(diagnostics["arce_gamma_mean"], 0.)
         self.assertLessEqual(diagnostics["arce_gamma_mean"], 1.)
 
-    def test_count_and_marginal_keep_the_rcekd_loss_and_finite_gradients(self):
-        for sampler in ("count", "marginal"):
+    def test_all_blocker_selectors_keep_the_rcekd_loss_and_finite_gradients(self):
+        for sampler in ("count", "marginal", "marginal_topl"):
             with self.subTest(sampler=sampler):
                 model = make_model(sampler)
                 torch.manual_seed(47)
@@ -181,6 +182,20 @@ class AnchorRCEKDTests(unittest.TestCase):
                 self.assertTrue(torch.isfinite(loss))
                 loss.backward()
                 self.assertTrue(torch.isfinite(model.student.score_parameters.grad).all())
+
+    def test_marginal_topl_is_deterministic_and_keeps_exact_budget(self):
+        model = make_model("marginal_topl")
+        torch.manual_seed(11)
+        diagnostics = model.do_something_in_each_epoch(0)
+        first = model.interesting_items.clone()
+        torch.manual_seed(997)
+        model.do_something_in_each_epoch(1)
+        torch.testing.assert_close(
+            model.interesting_items, first, rtol=0., atol=0.,
+        )
+        self.assertEqual(diagnostics["arce_sampler"], "marginal_topl")
+        for row in first:
+            self.assertEqual(row.unique().numel(), model.L)
 
     def test_mass_gamma_preserves_mean_when_calibrated_and_changes_allocation(self):
         sample_model = make_model("marginal", "sample_overlap")
@@ -252,6 +267,18 @@ class AnchorRCEKDTests(unittest.TestCase):
         )
         self.assertIn(1, sampled[0].tolist())
         self.assertNotIn(4, sampled[0].tolist())
+
+    def test_topl_masks_ineligible_items_even_when_their_scores_are_largest(self):
+        student_topm = torch.tensor([[0, 1, 2, 3, 4]])
+        anchor_positions = torch.tensor([[1, 0]])
+        anchor_active = torch.tensor([[True, False]])
+        blocker_scores = torch.tensor([[.8, 100., .2, .7, 90.]])
+        blocker_eligible = torch.tensor([[True, False, True, True, False]])
+        selected = select_anchor_preserving_topl(
+            student_topm, anchor_positions, anchor_active,
+            blocker_scores, blocker_eligible, length=2,
+        )
+        self.assertEqual(set(selected[0].tolist()), {0, 1})
 
 
 if __name__ == "__main__":

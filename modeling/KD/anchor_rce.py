@@ -197,6 +197,40 @@ def sample_anchor_preserving(student_topm, anchor_positions, anchor_active,
     return student_topm.gather(1, selected_positions)
 
 
+def select_anchor_preserving_topl(student_topm, anchor_positions,
+                                  anchor_active, blocker_scores,
+                                  blocker_eligible, length):
+    """Keep Q1 anchors and deterministically fill with top-scored blockers."""
+    if blocker_scores.shape != student_topm.shape:
+        raise ValueError("blocker_scores and student_topm must have equal shape")
+    if blocker_eligible.shape != student_topm.shape:
+        raise ValueError("blocker_eligible and student_topm must have equal shape")
+    blocker_eligible = blocker_eligible.bool()
+    if (blocker_eligible.sum(dim=1) < length).any():
+        raise ValueError("each user must have at least length eligible blockers")
+    masked_scores = torch.where(
+        blocker_eligible, blocker_scores,
+        torch.full_like(blocker_scores, -float("inf")),
+    )
+    blocker_positions = torch.topk(masked_scores, length, dim=1).indices
+    combined_positions = torch.cat([anchor_positions, blocker_positions], dim=1)
+    combined_active = torch.cat([
+        anchor_active,
+        torch.ones_like(blocker_positions, dtype=torch.bool),
+    ], dim=1)
+    order = torch.arange(
+        combined_positions.shape[1], device=combined_positions.device,
+    ).unsqueeze(0)
+    priority = torch.where(
+        combined_active,
+        combined_positions.new_tensor(combined_positions.shape[1]) - order,
+        combined_positions.new_tensor(-1),
+    )
+    selected_columns = torch.topk(priority, length, dim=1).indices
+    selected_positions = combined_positions.gather(1, selected_columns)
+    return student_topm.gather(1, selected_positions)
+
+
 def probability_entropy(probabilities):
     safe_log = torch.where(
         probabilities > 0., probabilities.clamp_min(1e-30).log(),
@@ -259,14 +293,16 @@ def redistribute_gamma_by_difficulty(difficulty, reference_gamma):
 
 
 class ARCEKD(RCEKD):
-    """RCE-KD with Q1 anchors and count or Top-M marginal blocker sampling."""
+    """RCE-KD with Q1 anchors and alternative blocker-selection rules."""
 
     def __init__(self, args, teacher, student):
         super().__init__(args, teacher, student)
         self.model_name = "arcekd"
         self.arce_sampler = getattr(args, "arce_sampler", "marginal")
-        if self.arce_sampler not in ("count", "marginal"):
-            raise ValueError("arce_sampler must be 'count' or 'marginal'")
+        if self.arce_sampler not in ("count", "marginal", "marginal_topl"):
+            raise ValueError(
+                "arce_sampler must be 'count', 'marginal', or 'marginal_topl'"
+            )
         self.arce_mix_alpha = float(getattr(args, "arce_mix_alpha", .9))
         if not 0. <= self.arce_mix_alpha <= 1.:
             raise ValueError("arce_mix_alpha must be between zero and one")
@@ -304,7 +340,7 @@ class ARCEKD(RCEKD):
             student_scores_t = student_score_mat.gather(1, self.T_topk_dict)
             closure_statistics = None
             if (
-                self.arce_sampler == "marginal"
+                self.arce_sampler in ("marginal", "marginal_topl")
                 or self.arce_gamma_mode == "closure_quantile"
             ):
                 closure_statistics = topm_closure_statistics(
@@ -327,10 +363,19 @@ class ARCEKD(RCEKD):
                 student_topm, self.T_topk_dict, self.T_topk_scores,
                 self.K, self.L,
             )
-            self.interesting_items = sample_anchor_preserving(
-                student_topm, anchor_positions, anchor_active,
-                blocker_probabilities, self.L,
-            )
+            if self.arce_sampler == "marginal_topl":
+                blocker_eligible = ~rowwise_isin(
+                    student_topm, self.T_topk_dict,
+                )
+                self.interesting_items = select_anchor_preserving_topl(
+                    student_topm, anchor_positions, anchor_active,
+                    blocker_probabilities, blocker_eligible, self.L,
+                )
+            else:
+                self.interesting_items = sample_anchor_preserving(
+                    student_topm, anchor_positions, anchor_active,
+                    blocker_probabilities, self.L,
+                )
 
             sampled_teacher = rowwise_isin(
                 self.T_topk_dict, self.interesting_items,
@@ -365,6 +410,7 @@ class ARCEKD(RCEKD):
             anchor_count = anchor_active.sum(dim=1).float()
             entropy = probability_entropy(blocker_probabilities)
             return {
+                "arce_sampler": self.arce_sampler,
                 "arce_gamma_mode": self.arce_gamma_mode,
                 "arce_anchor_count_mean": anchor_count.mean().item(),
                 "arce_blocker_budget_mean": (self.L - anchor_count).mean().item(),
