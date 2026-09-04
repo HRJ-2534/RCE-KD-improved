@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+
+/checkpoints/
+/logs/
+/mlruns/
+/crafts/
+
+/data/citeulike/users.dat
+/data/citeulike/train.txt
+/data/citeulike/valid.txt
+/data/citeulike/test.txt
