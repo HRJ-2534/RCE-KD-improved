@@ -1,0 +1,21 @@
+[teacher] checkpoints/citeulike/bpr/scratch-400/BEST_EPOCH.pt
+[student] checkpoints/citeulike/bpr/arcekd-20_anchor_marginal_es20/BEST_EPOCH.pt
+[users] 5216/5219 require blockers; mean budget=14.0842
+[diagnostic] exact Top-M union reference; independent calibration and evaluation draws
+  users 0:32/5219
+  users 800:832/5219
+  users 1600:1632/5219
+  users 2400:2432/5219
+  users 3200:3232/5219
+  users 4000:4032/5219
+  users 4800:4832/5219
+  users 5216:5219/5219
+
+[summary: gradient against exact Top-M union CE]
+  sampled_uncorrected          mean-grad-cos=0.611902 rel-bias=0.883095 variance/ref2=0.068868 draw-cos=0.594231
+  log_bq_student               mean-grad-cos=0.741837 rel-bias=1.530442 variance/ref2=15.044566 draw-cos=0.465338
+  log_bq_both                  mean-grad-cos=0.975951 rel-bias=0.183556 variance/ref2=5.055947 draw-cos=0.532111
+  log_wr_inclusion_both        mean-grad-cos=0.975319 rel-bias=0.190795 variance/ref2=5.133083 draw-cos=0.527914
+  log_mc_inclusion_student     mean-grad-cos=0.742427 rel-bias=1.539519 variance/ref2=15.441461 draw-cos=0.467831
+  log_mc_inclusion_both        mean-grad-cos=0.974515 rel-bias=0.190799 variance/ref2=5.044717 draw-cos=0.535211
+  report saved to logs/importance_correction_citeulike_bpr-bpr_arcekd_d20_k50_l50_m200_seed0.json
