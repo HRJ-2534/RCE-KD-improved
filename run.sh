@@ -62,3 +62,12 @@ python -u main.py --dataset=gowalla --S_backbone=lightgcn --T_backbone=lightgcn 
 # stage 3: split mode (RCE-KD + uniform tail coverage, the main candidate)
 python -u main.py --dataset=citeulike --S_backbone=bpr --T_backbone=bpr --model=srcekd --cfg srce_mode=split srce_Lu=20 early_stop_K=20 --suffix splitLu20_homo_seed0
 python -u main.py --dataset=citeulike --S_backbone=bpr --T_backbone=lightgcn --model=srcekd --cfg srce_mode=split srce_Lu=20 early_stop_K=20 --suffix splitLu20_het_seed0
+
+# stage 4: popularity-tilted distillation (debias direction, split mode)
+# phenomenon check (no training): is the debiasing effect from KD itself or from small capacity?
+python -u diagnose.py --dataset=citeulike --T_backbone=lightgcn --S_backbone=bpr --model=scratch --suffix student
+# first runs: kappa sweep, compared against rcekd (== srce_mode=split, srce_Lu=0, srce_kappa=0)
+python -u main.py --dataset=citeulike --S_backbone=bpr --T_backbone=lightgcn --model=srcekd --cfg srce_mode=split srce_Lu=0 srce_kappa=0.5 early_stop_K=20 --suffix het_k05_seed0
+python -u main.py --dataset=citeulike --S_backbone=bpr --T_backbone=lightgcn --model=srcekd --cfg srce_mode=split srce_Lu=0 srce_kappa=1.0 early_stop_K=20 --suffix het_k10_seed0
+# after training, get bias metrics (ARP, long-tail Recall) for the new checkpoints:
+python -u diagnose.py --dataset=citeulike --T_backbone=lightgcn --S_backbone=bpr --model=srcekd --suffix het_k05_seed0

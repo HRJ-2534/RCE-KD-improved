@@ -151,6 +151,16 @@ class SRCEKD(BaseKD4Rec):
         self.Lu = args.srce_Lu
         # split mode keeps RCE-KD's two-loss structure and adaptive gamma
         self.beta = getattr(args, "mkd_beta", 5.) if self.mode == "split" else None
+        # popularity tilt on the teacher target: item i's target mass is
+        # multiplied by (pop_i + 1)^(-kappa), kappa=0 recovers RCE-KD.
+        # Long-tail teacher items are emphasized so that distillation also
+        # counteracts popularity bias instead of inheriting it.
+        self.kappa = getattr(args, "srce_kappa", 0.)
+        if self.kappa != 0:
+            pop = torch.zeros(self.num_items)
+            for u, items in self.dataset.train_dict.items():
+                pop[items] += 1
+            self.item_pop_weight = (pop + 1).pow(-self.kappa).cuda()
         self.T_topk_dict = self.get_topk_dict(self.teacher, self.K)
 
         # observed (training) interactions, for the reliability correction
@@ -282,6 +292,8 @@ class SRCEKD(BaseKD4Rec):
         logit_S_itemS = self.student.forward_multi_items(batch_users, itemS) / self.tau
         logit_T_itemS = self.teacher.forward_multi_items(batch_users, itemS) / self.tau
         exp_logit_T_itemS = torch.exp(logit_T_itemS)
+        if self.kappa != 0:
+            exp_logit_T_itemS = exp_logit_T_itemS * self.item_pop_weight[itemS]
         Z_T = exp_logit_T_itemS.sum(-1, keepdim=True)
         prob_T_itemS = exp_logit_T_itemS / Z_T
         loss_itemS = F.cross_entropy(logit_S_itemS, prob_T_itemS, reduction='none')
@@ -298,6 +310,9 @@ class SRCEKD(BaseKD4Rec):
                             (~mask_U).float()], dim=-1)
         exp_logit_T_itemA = torch.exp(logit_T_itemA) * keep_A
         exp_logit_T_itemT = torch.exp(logit_T_itemT)
+        if self.kappa != 0:
+            exp_logit_T_itemA = exp_logit_T_itemA * self.item_pop_weight[itemA]
+            exp_logit_T_itemT = exp_logit_T_itemT * self.item_pop_weight[itemT]
         mask = self.rowwise_isin(itemT, itemA)
         exp_logit_T_itemT[mask] = 0
         mask2 = self.rowwise_isin(itemT, itemS)

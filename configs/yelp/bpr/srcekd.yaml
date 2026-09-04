@@ -12,6 +12,7 @@ bpr:
   srce_alpha: 1
   srce_mode: union
   mkd_beta: 5
+  srce_kappa: 0
   srce_s: 20
   srce_eta: 1
   srce_Lu: 20
@@ -30,6 +31,7 @@ lightgcn:
   srce_alpha: 1
   srce_mode: union
   mkd_beta: 11
+  srce_kappa: 0
   srce_s: 20
   srce_eta: 1
   srce_Lu: 20
@@ -48,6 +50,7 @@ hstu:
   srce_alpha: 1
   srce_mode: union
   mkd_beta: 0.5
+  srce_kappa: 0
   srce_s: 20
   srce_eta: 1
   srce_Lu: 20

@@ -51,6 +51,8 @@ parser.add_argument('--srce_eta', type=float, default=1., help="reliability boos
 parser.add_argument('--srce_Lu', type=int, default=20, help="number of uniform tail samples per user")
 parser.add_argument('--srce_mode', type=str, default='union', choices=['union', 'split'],
                     help="union: single CE on the union set; split: keep RCE-KD's two losses + adaptive gamma and only merge uniform samples into L2")
+parser.add_argument('--srce_kappa', type=float, default=0.,
+                    help="popularity tilt on the teacher target in split mode: item mass x (pop+1)^(-kappa); 0 = off (RCE-KD)")
 
 parser.add_argument('--eval_period', type=int, default=1)
 parser.add_argument('--K_list', type=list, default=[10, 20])

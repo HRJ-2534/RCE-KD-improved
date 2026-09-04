@@ -102,6 +102,7 @@ This fork adds **SRCE-KD** (an experimental extension of RCE-KD) with two modes 
 
 1. **`union`** (default): replaces the hard split + adaptive γ with a single CE on the union item set (student top-K ∪ teacher top-K ∪ closure samples ∪ uniform samples), with optional soft rank-based weights (`srce_alpha`) and reliability correction (`srce_eta`). *Pre-research finding: this mode helps slightly in homogeneous KD but collapses in heterogeneous KD — kept for ablation.*
 2. **`split`**: keeps RCE-KD's original two-loss structure and adaptive γ untouched, and merges `srce_Lu` uniform tail samples into the closure sample set of L2, covering teacher items ranked beyond the student's top-mxK (the blind region of RCE-KD's sampling, ~10-18% of teacher top items in our diagnostics). With `srce_Lu=0` this mode reduces exactly to RCE-KD.
+3. **Popularity tilt (`srce_kappa`, split mode)**: multiplies each item's mass in the teacher target by `(pop_i + 1)^(-kappa)`, tilting distillation toward long-tail teacher items. Motivation: our diagnostics show that distilled students are already slightly less popularity-biased than their teachers (lower ARP, higher long-tail Recall); `kappa > 0` amplifies this debiasing effect instead of merely inheriting the teacher's bias. `kappa = 0` recovers RCE-KD exactly, `kappa < 0` serves as the reversed ablation.
 
 Code: `modeling/KD/playground.py` (class `SRCEKD`, `--model=srcekd`). Configs: `configs/<dataset>/<S_backbone>/srcekd.yaml`.
 
