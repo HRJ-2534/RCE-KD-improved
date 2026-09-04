@@ -53,16 +53,13 @@ def original_count_blocker_probabilities(teacher_topk, student_topm,
     return normalize_with_uniform_mixture(raw_weight, eligible, 1.)
 
 
-def topm_marginal_blocker_probabilities(student_scores_m, student_scores_t,
-                                        teacher_scores_t, teacher_topk,
-                                        student_topm, q2_active, mix_alpha):
-    """Top-M approximation of the first-order soft-closure removal value."""
+def topm_closure_statistics(student_scores_m, student_scores_t, teacher_topk,
+                            student_topm, q2_active):
+    """Shared Top-M quantities for closure difficulty and marginal sampling."""
     if student_scores_m.shape != student_topm.shape:
         raise ValueError("student_scores_m and student_topm must have equal shape")
     if student_scores_t.shape != teacher_topk.shape:
         raise ValueError("student_scores_t and teacher_topk must have equal shape")
-    if teacher_scores_t.shape != teacher_topk.shape:
-        raise ValueError("teacher_scores_t and teacher_topk must have equal shape")
     if q2_active.shape != teacher_topk.shape:
         raise ValueError("q2_active and teacher_topk must have equal shape")
 
@@ -84,6 +81,46 @@ def topm_marginal_blocker_probabilities(student_scores_m, student_scores_t,
         * (~topm_is_in_q2).unsqueeze(2)
         * exp_m.unsqueeze(2)
     ).sum(dim=1)
+    return {
+        "exp_m": exp_m,
+        "mass_j": mass_j,
+        "blocker_relation": blocker_relation,
+        "missing_visible": missing_visible,
+        "eligible": ~topm_matches_t.any(dim=1),
+    }
+
+
+def topm_closure_difficulty(teacher_topk_prob, q2_active,
+                            closure_statistics):
+    """Teacher-mass-weighted Top-M soft-closure penalty per user."""
+    missing_visible = closure_statistics["missing_visible"]
+    mass_j = closure_statistics["mass_j"]
+    if teacher_topk_prob.shape != missing_visible.shape:
+        raise ValueError("teacher_topk_prob has an incompatible shape")
+    if q2_active.shape != missing_visible.shape:
+        raise ValueError("q2_active has an incompatible shape")
+    rho = missing_visible / mass_j
+    return (
+        teacher_topk_prob * q2_active * torch.log1p(rho)
+    ).sum(dim=1)
+
+
+def topm_marginal_blocker_probabilities(student_scores_m, student_scores_t,
+                                        teacher_scores_t, teacher_topk,
+                                        student_topm, q2_active, mix_alpha,
+                                        closure_statistics=None):
+    """Top-M approximation of the first-order soft-closure removal value."""
+    if teacher_scores_t.shape != teacher_topk.shape:
+        raise ValueError("teacher_scores_t and teacher_topk must have equal shape")
+    if closure_statistics is None:
+        closure_statistics = topm_closure_statistics(
+            student_scores_m, student_scores_t, teacher_topk,
+            student_topm, q2_active,
+        )
+    exp_m = closure_statistics["exp_m"]
+    mass_j = closure_statistics["mass_j"]
+    blocker_relation = closure_statistics["blocker_relation"]
+    missing_visible = closure_statistics["missing_visible"]
 
     masked_teacher = torch.where(
         q2_active, teacher_scores_t,
@@ -110,8 +147,9 @@ def topm_marginal_blocker_probabilities(student_scores_m, student_scores_t,
     marginal_raw = exp_m * (
         blocker_relation * coefficient.unsqueeze(1)
     ).sum(dim=2)
-    eligible = ~topm_matches_t.any(dim=1)
-    return normalize_with_uniform_mixture(marginal_raw, eligible, mix_alpha)
+    return normalize_with_uniform_mixture(
+        marginal_raw, closure_statistics["eligible"], mix_alpha,
+    )
 
 
 def prepare_teacher_anchors(student_topm, teacher_topk, teacher_scores_t,
@@ -207,6 +245,19 @@ def calibrate_exponential_gamma(trusted_mass, target_mean, iterations=48):
     return gamma, beta
 
 
+def redistribute_gamma_by_difficulty(difficulty, reference_gamma):
+    """Preserve every gamma value while assigning larger ones to harder users."""
+    if difficulty.ndim != 1 or reference_gamma.ndim != 1:
+        raise ValueError("difficulty and reference_gamma must be rank-1 tensors")
+    if difficulty.shape != reference_gamma.shape:
+        raise ValueError("difficulty and reference_gamma must have equal shape")
+    difficulty_order = torch.argsort(difficulty, stable=True)
+    sorted_gamma = torch.sort(reference_gamma).values
+    redistributed = torch.empty_like(reference_gamma)
+    redistributed[difficulty_order] = sorted_gamma
+    return redistributed
+
+
 class ARCEKD(RCEKD):
     """RCE-KD with Q1 anchors and count or Top-M marginal blocker sampling."""
 
@@ -227,10 +278,11 @@ class ARCEKD(RCEKD):
         self.arce_gamma_mode = getattr(args, "arce_gamma_mode", "sample_overlap")
         if self.arce_gamma_mode not in (
             "sample_overlap", "teacher_mass", "teacher_mass_calibrated",
+            "closure_quantile",
         ):
             raise ValueError(
                 "arce_gamma_mode must be sample_overlap, teacher_mass, or "
-                "teacher_mass_calibrated"
+                "teacher_mass_calibrated, or closure_quantile"
             )
         with torch.no_grad():
             users = torch.arange(self.num_users, device=self.T_topk_dict.device)
@@ -250,6 +302,15 @@ class ARCEKD(RCEKD):
             q1_active = rowwise_isin(self.T_topk_dict, self.itemS)
             q2_active = ~q1_active
             student_scores_t = student_score_mat.gather(1, self.T_topk_dict)
+            closure_statistics = None
+            if (
+                self.arce_sampler == "marginal"
+                or self.arce_gamma_mode == "closure_quantile"
+            ):
+                closure_statistics = topm_closure_statistics(
+                    student_scores_m, student_scores_t, self.T_topk_dict,
+                    student_topm, q2_active,
+                )
 
             if self.arce_sampler == "count":
                 blocker_probabilities = original_count_blocker_probabilities(
@@ -259,7 +320,7 @@ class ARCEKD(RCEKD):
                 blocker_probabilities = topm_marginal_blocker_probabilities(
                     student_scores_m, student_scores_t, self.T_topk_scores,
                     self.T_topk_dict, student_topm, q2_active,
-                    self.arce_mix_alpha,
+                    self.arce_mix_alpha, closure_statistics,
                 )
 
             anchor_positions, anchor_active = prepare_teacher_anchors(
@@ -279,14 +340,26 @@ class ARCEKD(RCEKD):
                 self.T_topk_prob * q2_active
             ).sum(dim=1)
             trusted_teacher_mass = 1. - teacher_missing_mass
+            closure_difficulty = topm_closure_difficulty(
+                self.T_topk_prob, q2_active,
+                closure_statistics if closure_statistics is not None
+                else topm_closure_statistics(
+                    student_scores_m, student_scores_t, self.T_topk_dict,
+                    student_topm, q2_active,
+                ),
+            )
             effective_beta = student_score_mat.new_tensor(self.beta)
             if self.arce_gamma_mode == "sample_overlap":
                 gamma = sample_gamma
             elif self.arce_gamma_mode == "teacher_mass":
                 gamma = torch.exp(-self.beta * trusted_teacher_mass)
-            else:
+            elif self.arce_gamma_mode == "teacher_mass_calibrated":
                 gamma, effective_beta = calibrate_exponential_gamma(
                     trusted_teacher_mass, sample_gamma.mean(),
+                )
+            else:
+                gamma = redistribute_gamma_by_difficulty(
+                    closure_difficulty, sample_gamma,
                 )
             self.arce_gamma = gamma
             anchor_count = anchor_active.sum(dim=1).float()
@@ -306,6 +379,13 @@ class ARCEKD(RCEKD):
                 "arce_teacher_missing_mass_std": teacher_missing_mass.std(
                     unbiased=False,
                 ).item(),
+                "arce_closure_difficulty_mean": closure_difficulty.mean().item(),
+                "arce_closure_difficulty_std": closure_difficulty.std(
+                    unbiased=False,
+                ).item(),
+                "arce_gamma_reassignment_l1_mean": (
+                    gamma - sample_gamma
+                ).abs().mean().item(),
                 "arce_blocker_entropy_mean": entropy.mean().item(),
             }
 

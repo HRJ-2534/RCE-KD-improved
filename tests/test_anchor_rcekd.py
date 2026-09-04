@@ -10,8 +10,11 @@ from modeling.KD.anchor_rce import (
     ARCEKD,
     calibrate_exponential_gamma,
     prepare_teacher_anchors,
+    redistribute_gamma_by_difficulty,
     rowwise_isin,
     sample_anchor_preserving,
+    topm_closure_difficulty,
+    topm_closure_statistics,
     topm_marginal_blocker_probabilities,
 )
 
@@ -65,6 +68,19 @@ class AnchorRCEKDTests(unittest.TestCase):
         self.assertGreater(beta.item(), 0.)
         self.assertTrue(torch.all(gamma[:-1] > gamma[1:]))
 
+    def test_closure_gamma_preserves_full_distribution_and_follows_difficulty(self):
+        difficulty = torch.tensor([.8, .1, .5, .3])
+        reference = torch.tensor([.05, .7, .2, .1])
+        redistributed = redistribute_gamma_by_difficulty(difficulty, reference)
+        torch.testing.assert_close(
+            torch.sort(redistributed).values, torch.sort(reference).values,
+            rtol=0., atol=0.,
+        )
+        order = torch.argsort(difficulty)
+        self.assertTrue(torch.all(
+            redistributed[order][:-1] <= redistributed[order][1:]
+        ))
+
     def test_topm_marginal_probabilities_are_finite_supported_and_normalized(self):
         scores_m = torch.tensor([[6., 5., 4., 3., 2.]])
         student_topm = torch.tensor([[0, 1, 2, 3, 4]])
@@ -113,6 +129,29 @@ class AnchorRCEKDTests(unittest.TestCase):
                         / (mass_j + missing_mass)
                     )
         expected = raw / raw.sum()
+        torch.testing.assert_close(actual[0], expected)
+
+    def test_topm_closure_difficulty_matches_direct_definition(self):
+        scores_m = torch.tensor([[6., 5., 4., 3., 2.]], dtype=torch.float64)
+        student_topm = torch.tensor([[0, 1, 2, 3, 4]])
+        teacher_topk = torch.tensor([[1, 4]])
+        scores_t = torch.tensor([[5., 2.]], dtype=torch.float64)
+        q2 = torch.tensor([[True, True]])
+        teacher_prob = torch.tensor([[.8, .2]], dtype=torch.float64)
+        statistics = topm_closure_statistics(
+            scores_m, scores_t, teacher_topk, student_topm, q2,
+        )
+        actual = topm_closure_difficulty(teacher_prob, q2, statistics)
+        mass_j = scores_t[0].exp().sum()
+        expected = scores_m.new_tensor(0.)
+        teacher_items = set(teacher_topk[0].tolist())
+        for target_pos, target_score in enumerate(scores_t[0]):
+            missing = sum(
+                scores_m[0, pos].exp()
+                for pos, item in enumerate(student_topm[0].tolist())
+                if item not in teacher_items and scores_m[0, pos] >= target_score
+            )
+            expected += teacher_prob[0, target_pos] * torch.log1p(missing / mass_j)
         torch.testing.assert_close(actual[0], expected)
 
     def test_anchor_sampling_preserves_q1_and_fixed_unique_budget(self):
@@ -164,6 +203,23 @@ class AnchorRCEKDTests(unittest.TestCase):
         self.assertTrue(
             torch.isfinite(calibrated_model.student.score_parameters.grad).all()
         )
+
+    def test_closure_quantile_mode_preserves_every_sample_gamma_value(self):
+        model = make_model("marginal", "closure_quantile")
+        torch.manual_seed(61)
+        model.do_something_in_each_epoch(0)
+        sampled_teacher = rowwise_isin(
+            model.T_topk_dict, model.interesting_items,
+        ).float().mean(dim=1)
+        sample_gamma = torch.exp(-model.beta * sampled_teacher)
+        torch.testing.assert_close(
+            torch.sort(model.arce_gamma).values,
+            torch.sort(sample_gamma).values,
+            rtol=0., atol=0.,
+        )
+        users = torch.tensor([0, 1])
+        loss = model.get_loss(users)
+        self.assertTrue(torch.isfinite(loss))
 
     def test_gamma_override_changes_only_the_rcekd_mixture_weight(self):
         reference = make_model("marginal", "sample_overlap")
