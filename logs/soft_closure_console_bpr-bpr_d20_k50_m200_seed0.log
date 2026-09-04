@@ -1,0 +1,20 @@
+[teacher] checkpoints/citeulike/bpr/scratch-400/BEST_EPOCH.pt
+[student] checkpoints/citeulike/bpr/rcekd-20/BEST_EPOCH.pt
+[sets] reconstructing RCE-KD L2 with K=50, L=50, mxK=200
+[diagnostic] computing exact full-catalog and top-M closure mass
+  users 0:32/5219
+  users 800:832/5219
+  users 1600:1632/5219
+  users 2400:2432/5219
+  users 3200:3232/5219
+  users 4000:4032/5219
+  users 4800:4832/5219
+  users 5216:5219/5219
+
+[summary]
+  exact-bound violations: 0
+  CE-only violations: 0
+  top-M approximate-bound violations: 0
+  top-M/exact penalty median: 0.9028
+  top-M/exact penalty mean: 0.8799
+  report saved to logs/soft_closure_citeulike_bpr-bpr_d20_k50_l50_m200_seed0.json

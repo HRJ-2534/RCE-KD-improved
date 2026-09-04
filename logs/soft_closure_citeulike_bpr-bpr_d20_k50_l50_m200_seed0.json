@@ -1,0 +1,187 @@
+{
+  "experiment": {
+    "dataset": "citeulike",
+    "teacher": "bpr",
+    "student": "bpr",
+    "student_dim": 20,
+    "student_checkpoint": "checkpoints/citeulike/bpr/rcekd-20/BEST_EPOCH.pt",
+    "teacher_checkpoint": "checkpoints/citeulike/bpr/scratch-400/BEST_EPOCH.pt",
+    "K": 50,
+    "L": 50,
+    "mxK": 200,
+    "tau": 1.0,
+    "sampling_temperature": 10.0,
+    "seed": 0,
+    "rho_definition": "sum_{j outside J, s_j>=s_i} exp(s_j) / sum_{j in J} exp(s_j)"
+  },
+  "per_user": {
+    "exact_penalty": {
+      "count": 5219,
+      "mean": 0.11112877511109569,
+      "std": 0.1152041606181961,
+      "min": 0.00017171504441648722,
+      "q25": 0.04155021533370018,
+      "median": 0.07771953195333481,
+      "q75": 0.14051984250545502,
+      "max": 1.5335125923156738
+    },
+    "topm_penalty": {
+      "count": 5219,
+      "mean": 0.09156451032726105,
+      "std": 0.08264680461077119,
+      "min": 0.00010048350668512285,
+      "q25": 0.037903593853116035,
+      "median": 0.0687815472483635,
+      "q75": 0.11808957159519196,
+      "max": 1.1478190422058105
+    },
+    "ce": {
+      "count": 5219,
+      "mean": 3.582973991643654,
+      "std": 0.34533943381635507,
+      "min": 1.1203662157058716,
+      "q25": 3.430136799812317,
+      "median": 3.6129891872406006,
+      "q75": 3.7912732362747192,
+      "max": 4.62434720993042
+    },
+    "log_c_j": {
+      "count": 5219,
+      "mean": -2.3753864519850554,
+      "std": 0.8968989371402487,
+      "min": -4.550826072692871,
+      "q25": -3.066532611846924,
+      "median": -2.4720754623413086,
+      "q75": -1.6977076530456543,
+      "max": -0.08713340759277344
+    },
+    "exact_bound": {
+      "count": 5219,
+      "mean": -6.069489217942007,
+      "std": 1.1240963448307666,
+      "min": -9.832731246948242,
+      "q25": -6.881532907485962,
+      "median": -6.15212345123291,
+      "q75": -5.311450242996216,
+      "max": -1.2102404832839966
+    },
+    "topm_bound": {
+      "count": 5219,
+      "mean": -6.0499249520167515,
+      "std": 1.1069975987901857,
+      "min": -9.497535705566406,
+      "q25": -6.859824180603027,
+      "median": -6.136854648590088,
+      "q75": -5.301106929779053,
+      "max": -1.2101693153381348
+    },
+    "ce_only_bound": {
+      "count": 5219,
+      "mean": -5.958360443240405,
+      "std": 1.056148094299895,
+      "min": -8.563925743103027,
+      "q25": -6.7457475662231445,
+      "median": -6.067917346954346,
+      "q75": -5.249831676483154,
+      "max": -1.2100688219070435
+    },
+    "log_ndcg": {
+      "count": 5219,
+      "mean": -0.04207240607507888,
+      "std": 0.048931638270885716,
+      "min": -0.6674849987030029,
+      "q25": -0.050535861402750015,
+      "median": -0.028597867116332054,
+      "q75": -0.015849088318645954,
+      "max": -0.0005091532366350293
+    },
+    "exact_weighted_rho": {
+      "count": 5219,
+      "mean": 0.18200840707891758,
+      "std": 0.38441807794980964,
+      "min": 0.00017572968499734998,
+      "q25": 0.0498337484896183,
+      "median": 0.09890952706336975,
+      "q75": 0.19885101914405823,
+      "max": 16.38849639892578
+    },
+    "topm_weighted_rho": {
+      "count": 5219,
+      "mean": 0.11783835415956113,
+      "std": 0.1221363016188057,
+      "min": 0.00010121692321263254,
+      "q25": 0.04376133345067501,
+      "median": 0.08291983604431152,
+      "q75": 0.14871521294116974,
+      "max": 2.1803336143493652
+    },
+    "active_size": {
+      "count": 5219,
+      "mean": 62.227246598965316,
+      "std": 6.492710926718646,
+      "min": 50.0,
+      "q25": 58.0,
+      "median": 62.0,
+      "q75": 66.0,
+      "max": 89.0
+    }
+  },
+  "per_active_item": {
+    "exact_rho": {
+      "count": 324764,
+      "mean": 0.36517306457272175,
+      "std": 0.9069921218983483,
+      "min": 0.0,
+      "q25": 6.541748831523364e-08,
+      "median": 0.1908920481801033,
+      "q75": 0.4662961885333061,
+      "max": 136.3744659423828
+    },
+    "topm_rho": {
+      "count": 324764,
+      "mean": 0.27709676369245717,
+      "std": 0.30423730881729616,
+      "min": 0.0,
+      "q25": 0.0,
+      "median": 0.18994522094726562,
+      "q75": 0.4570857286453247,
+      "max": 2.901235818862915
+    },
+    "topm_over_exact_rho": {
+      "count": 324764,
+      "mean": 0.9266808778861402,
+      "std": 0.229289755382981,
+      "min": 0.0,
+      "q25": 0.9999997574394924,
+      "median": 1.0,
+      "q75": 1.0000000811742735,
+      "max": 1.0001110528546837
+    }
+  },
+  "approximation": {
+    "topm_over_exact_penalty": {
+      "count": 5219,
+      "mean": 0.8798658104678022,
+      "std": 0.1111262426619499,
+      "min": 0.38359935824305685,
+      "q25": 0.812522898155016,
+      "median": 0.9027903883484579,
+      "q75": 0.9756500904109545,
+      "max": 1.0000018641183548
+    },
+    "pearson_exact_vs_topm_penalty": 0.9722889598942459
+  },
+  "bound_checks": {
+    "exact_bound_violation_count": 0,
+    "exact_bound_max_violation": -1.2097313300473616,
+    "ce_only_violation_count": 0,
+    "topm_approx_bound_violation_count": 0,
+    "tolerance": 1e-06
+  },
+  "interpretation_guardrails": [
+    "The exact penalty coefficient is one in the derived lower bound; a tunable coefficient is heuristic.",
+    "Top-M rho is a lower estimate of missing mass, so its induced bound is not guaranteed.",
+    "Rank-indicator derivatives are zero almost everywhere; score-mass derivatives remain available.",
+    "This diagnostic validates the objective and approximation only; it is not a recommendation-performance result."
+  ]
+}
