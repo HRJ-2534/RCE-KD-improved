@@ -81,9 +81,9 @@ def main(args):
     if not args.no_save:
         best_model, best_epoch = deepcopy(model.param_to_save), -1
         ckpts = []
+        score_mats = []
         if args.postsave:
             best_score_mat = deepcopy(model.score_mat_to_save)
-            score_mats = []
 
     # Test Teacher first
     if args.model.lower() != "scratch":

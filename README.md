@@ -93,3 +93,17 @@ The codes for all backbones are provided in `modeling/backbone/`.
   year={2025}
 }
 ```
+
+---
+
+## 🔧 Our Extension: SRCE-KD (work in progress)
+
+This fork adds **SRCE-KD** (Soft-closure & Reliability-aware RCE-KD), which improves RCE-KD in three ways:
+
+1. **Soft closure weighting**: the hard split of the teacher's top-K (plus the adaptive fusion weight γ) is replaced by a single CE loss on the union item set, where each teacher item is weighted continuously by the student's rank of it: `w_i = 1 + alpha * sigmoid((rank_S(i) - K) / s)`. The limit `s -> 0` recovers RCE-KD's hard split.
+2. **Tail coverage**: besides the rank-weighted samples inside the student's top-mxK, a few uniformly sampled items (`srce_Lu`) are added so that "blocking" items beyond the student's top-mxK are also covered.
+3. **Teacher reliability correction**: teacher items confirmed by the user's real training interactions are boosted by `1 + srce_eta`, so the student imitates *verified* teacher knowledge rather than the raw teacher.
+
+Code: `modeling/KD/playground.py` (class `SRCEKD`, `--model=srcekd`). Configs: `configs/<dataset>/<S_backbone>/srcekd.yaml`.
+
+It also adds `diagnose.py`, a training-free diagnostic script that quantifies the motivations above (teacher reliability, blind fraction beyond top-mxK, popularity-bias inheritance) from existing checkpoints. Exemplar commands are at the bottom of `run.sh`.

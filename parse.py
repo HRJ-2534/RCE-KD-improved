@@ -44,6 +44,12 @@ parser.add_argument('--wd', type=float, default=0.)
 
 parser.add_argument('--lmbda', type=float, default=1., help="weight of kd loss")
 
+# SRCE-KD hyperparameters (model=srcekd)
+parser.add_argument('--srce_alpha', type=float, default=1., help="max extra weight of badly-ranked teacher items")
+parser.add_argument('--srce_s', type=float, default=20., help="softness of the rank margin, in rank units")
+parser.add_argument('--srce_eta', type=float, default=1., help="reliability boost for ground-truth-confirmed teacher items")
+parser.add_argument('--srce_Lu', type=int, default=20, help="number of uniform tail samples per user")
+
 parser.add_argument('--eval_period', type=int, default=1)
 parser.add_argument('--K_list', type=list, default=[10, 20])
 parser.add_argument('--early_stop_metric', type=str, default='NDCG')

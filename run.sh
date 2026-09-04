@@ -46,3 +46,15 @@ python -u main.py --dataset=gowalla --S_backbone=bpr --T_backbone=bpr --model=rr
 
 python -u main.py --dataset=yelp --S_backbone=bpr --T_backbone=bpr --model=de
 python -u main.py --dataset=yelp --S_backbone=bpr --T_backbone=bpr --model=rrd
+
+
+# ===== SRCE-KD (our improvement) pre-research =====
+# stage 1: diagnostics (no training; needs teacher + rcekd student checkpoints)
+# optional: rerun rcekd with intermediate checkpoints to get overlap/blind-fraction dynamics
+python -u main.py --dataset=citeulike --S_backbone=bpr --T_backbone=bpr --model=rcekd --ckpt_interval=100 --postsave --suffix dyn
+python -u diagnose.py --dataset=citeulike --T_backbone=bpr --S_backbone=bpr --model=rcekd
+python -u diagnose.py --dataset=citeulike --T_backbone=bpr --S_backbone=bpr --model=rcekd --suffix dyn
+
+# stage 2: effectiveness check of SRCE-KD (1 seed first, then --run_all for 5 seeds)
+python -u main.py --dataset=citeulike --S_backbone=bpr --T_backbone=bpr --model=srcekd
+python -u main.py --dataset=gowalla --S_backbone=lightgcn --T_backbone=lightgcn --model=srcekd
