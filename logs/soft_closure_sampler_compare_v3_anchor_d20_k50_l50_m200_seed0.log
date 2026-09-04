@@ -1,0 +1,29 @@
+[teacher] checkpoints/citeulike/bpr/scratch-400/BEST_EPOCH.pt
+[student] checkpoints/citeulike/bpr/rcekd-20/BEST_EPOCH.pt
+[users] 5207/5219 have at least one teacher top-K item outside student top-K
+[comparison] exact post-sampling penalty, shared full-catalog sort per batch
+  users 0:32/5219
+  users 800:832/5219
+  users 1600:1632/5219
+  users 2400:2432/5219
+  users 3200:3232/5219
+  users 4000:4032/5219
+  users 4800:4832/5219
+  users 5216:5219/5219
+
+[summary: mean exact penalty reduction]
+  original_code_count      reduction=3.590291 gain_vs_original_code_count=+0.000000 paired_win=0.000
+  q2_count                 reduction=2.920558 gain_vs_original_code_count=-0.669734 paired_win=0.002
+  teacher_student_mass     reduction=3.547195 gain_vs_original_code_count=-0.043097 paired_win=0.128
+  marginal_mass            reduction=3.554958 gain_vs_original_code_count=-0.035333 paired_win=0.151
+  uniform                  reduction=2.730619 gain_vs_original_code_count=-0.859672 paired_win=0.001
+  original_code_count_no_teacher reduction=1.938627 gain_vs_original_code_count_no_teacher=+0.000000 paired_win=0.000
+  q2_count_no_teacher      reduction=1.899596 gain_vs_original_code_count_no_teacher=-0.039031 paired_win=0.287
+  teacher_student_mass_no_teacher reduction=2.034743 gain_vs_original_code_count_no_teacher=+0.096116 paired_win=0.814
+  marginal_mass_no_teacher reduction=2.050219 gain_vs_original_code_count_no_teacher=+0.111592 paired_win=0.872
+  uniform_no_teacher       reduction=1.818202 gain_vs_original_code_count_no_teacher=-0.120425 paired_win=0.085
+  anchor_original_count    reduction=3.627415 gain_vs_anchor_original_count=+0.000000 paired_win=0.000
+  anchor_teacher_student_mass reduction=3.627825 gain_vs_anchor_original_count=+0.000410 paired_win=0.637
+  anchor_marginal_mass     reduction=3.628882 gain_vs_anchor_original_count=+0.001467 paired_win=0.686
+  anchor_uniform           reduction=3.620342 gain_vs_anchor_original_count=-0.007073 paired_win=0.205
+  report saved to logs/soft_closure_sampler_compare_v3_anchor_d20_k50_l50_m200_seed0.json
