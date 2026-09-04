@@ -99,6 +99,336 @@
       }
     }
   },
+  "teacher_group_target_diagnostics": {
+    "valid": {
+      "flat": {
+        "num_users": 1740,
+        "users_with_targets": 1697,
+        "num_targets": 6464,
+        "targets_per_user": {
+          "mean": 3.7149425287356324,
+          "std": 5.598779192375148,
+          "min": 0.0,
+          "q25": 1.0,
+          "median": 2.0,
+          "q75": 4.0,
+          "max": 133.0
+        },
+        "train_item_popularity_per_target": {
+          "mean": 6.441212871287129,
+          "std": 18.597422357168885,
+          "min": 0.0,
+          "q25": 0.0,
+          "median": 1.0,
+          "q75": 4.0,
+          "max": 352.0
+        },
+        "zero_train_popularity_fraction": 0.37051361386138615,
+        "teacher_raw_rank_1_based": {
+          "mean": 5629.803527227723,
+          "std": 5708.129653581071,
+          "min": 1.0,
+          "q25": 434.0,
+          "median": 3079.0,
+          "q75": 10388.25,
+          "max": 24778.0
+        },
+        "teacher_eval_rank_1_based": {
+          "mean": 5533.632735148515,
+          "std": 5691.6856475781215,
+          "min": 1.0,
+          "q25": 363.75,
+          "median": 2951.5,
+          "q75": 10290.5,
+          "max": 24747.0
+        },
+        "teacher_raw_target_hit_rate": {
+          "@20": 0.03310643564356436,
+          "@50": 0.06775990099009901,
+          "@100": 0.11478960396039604
+        },
+        "teacher_eval_target_hit_rate": {
+          "@20": 0.06265470297029703,
+          "@50": 0.1047339108910891,
+          "@100": 0.1454207920792079
+        },
+        "teacher_raw_target_mrr": 0.007575007476088364,
+        "teacher_eval_target_mrr": 0.01941185469826564
+      },
+      "middle": {
+        "num_users": 1740,
+        "users_with_targets": 1551,
+        "num_targets": 4435,
+        "targets_per_user": {
+          "mean": 2.5488505747126435,
+          "std": 7.990757869094735,
+          "min": 0.0,
+          "q25": 1.0,
+          "median": 1.0,
+          "q75": 2.0,
+          "max": 199.0
+        },
+        "train_item_popularity_per_target": {
+          "mean": 7.381285231116122,
+          "std": 24.657090181246485,
+          "min": 0.0,
+          "q25": 0.0,
+          "median": 1.0,
+          "q75": 5.0,
+          "max": 352.0
+        },
+        "zero_train_popularity_fraction": 0.35851183765501693,
+        "teacher_raw_rank_1_based": {
+          "mean": 5753.553100338218,
+          "std": 5831.523946471788,
+          "min": 1.0,
+          "q25": 464.0,
+          "median": 3240.0,
+          "q75": 10594.5,
+          "max": 25170.0
+        },
+        "teacher_eval_rank_1_based": {
+          "mean": 5533.773618940248,
+          "std": 5765.07385233021,
+          "min": 1.0,
+          "q25": 355.0,
+          "median": 2903.0,
+          "q75": 10347.5,
+          "max": 25162.0
+        },
+        "teacher_raw_target_hit_rate": {
+          "@20": 0.040135287485907556,
+          "@50": 0.08117249154453213,
+          "@100": 0.12040586245772265
+        },
+        "teacher_eval_target_hit_rate": {
+          "@20": 0.06538895152198422,
+          "@50": 0.10777903043968433,
+          "@100": 0.15264937993235625
+        },
+        "teacher_raw_target_mrr": 0.008526787389003006,
+        "teacher_eval_target_mrr": 0.020543818301186605
+      },
+      "front_loaded": {
+        "num_users": 1739,
+        "users_with_targets": 1270,
+        "num_targets": 1552,
+        "targets_per_user": {
+          "mean": 0.8924669350201265,
+          "std": 2.057104733157514,
+          "min": 0.0,
+          "q25": 0.0,
+          "median": 1.0,
+          "q75": 1.0,
+          "max": 57.0
+        },
+        "train_item_popularity_per_target": {
+          "mean": 11.155283505154639,
+          "std": 42.293034392995246,
+          "min": 0.0,
+          "q25": 0.0,
+          "median": 2.0,
+          "q75": 6.0,
+          "max": 352.0
+        },
+        "zero_train_popularity_fraction": 0.32216494845360827,
+        "teacher_raw_rank_1_based": {
+          "mean": 5566.916881443299,
+          "std": 6139.977575824055,
+          "min": 1.0,
+          "q25": 255.75,
+          "median": 2418.5,
+          "q75": 10303.25,
+          "max": 25154.0
+        },
+        "teacher_eval_rank_1_based": {
+          "mean": 5523.419458762886,
+          "std": 6119.736511826567,
+          "min": 1.0,
+          "q25": 226.25,
+          "median": 2340.5,
+          "q75": 10279.5,
+          "max": 25149.0
+        },
+        "teacher_raw_target_hit_rate": {
+          "@20": 0.07860824742268041,
+          "@50": 0.12886597938144329,
+          "@100": 0.1713917525773196
+        },
+        "teacher_eval_target_hit_rate": {
+          "@20": 0.09471649484536082,
+          "@50": 0.1404639175257732,
+          "@100": 0.18298969072164947
+        },
+        "teacher_raw_target_mrr": 0.013928440182599094,
+        "teacher_eval_target_mrr": 0.035293852393846255
+      }
+    },
+    "test": {
+      "flat": {
+        "num_users": 1740,
+        "users_with_targets": 1740,
+        "num_targets": 7298,
+        "targets_per_user": {
+          "mean": 4.194252873563219,
+          "std": 5.616393417177452,
+          "min": 1.0,
+          "q25": 2.0,
+          "median": 3.0,
+          "q75": 5.0,
+          "max": 134.0
+        },
+        "train_item_popularity_per_target": {
+          "mean": 1.6401753905179501,
+          "std": 10.790698549923118,
+          "min": 0.0,
+          "q25": 0.0,
+          "median": 0.0,
+          "q75": 0.0,
+          "max": 352.0
+        },
+        "zero_train_popularity_fraction": 0.7724033981912852,
+        "teacher_raw_rank_1_based": {
+          "mean": 9832.561523705124,
+          "std": 5053.557601452367,
+          "min": 1.0,
+          "q25": 7210.5,
+          "median": 10502.5,
+          "q75": 13376.75,
+          "max": 25175.0
+        },
+        "teacher_eval_rank_1_based": {
+          "mean": 9743.138120032885,
+          "std": 5044.215120410465,
+          "min": 1.0,
+          "q25": 7094.75,
+          "median": 10381.5,
+          "q75": 13275.75,
+          "max": 25151.0
+        },
+        "teacher_raw_target_hit_rate": {
+          "@20": 0.008632502055357632,
+          "@50": 0.019731433269388872,
+          "@100": 0.030008221430528913
+        },
+        "teacher_eval_target_hit_rate": {
+          "@20": 0.015209646478487257,
+          "@50": 0.023979172375993424,
+          "@100": 0.03494107974787613
+        },
+        "teacher_raw_target_mrr": 0.0022541390400285734,
+        "teacher_eval_target_mrr": 0.0044795837282142195
+      },
+      "middle": {
+        "num_users": 1740,
+        "users_with_targets": 1740,
+        "num_targets": 5158,
+        "targets_per_user": {
+          "mean": 2.964367816091954,
+          "std": 8.015064508979478,
+          "min": 1.0,
+          "q25": 1.0,
+          "median": 2.0,
+          "q75": 2.0,
+          "max": 200.0
+        },
+        "train_item_popularity_per_target": {
+          "mean": 1.9499806126405583,
+          "std": 11.69276043404923,
+          "min": 0.0,
+          "q25": 0.0,
+          "median": 0.0,
+          "q75": 1.0,
+          "max": 352.0
+        },
+        "zero_train_popularity_fraction": 0.7330360604885614,
+        "teacher_raw_rank_1_based": {
+          "mean": 9481.069600620396,
+          "std": 5317.344927748625,
+          "min": 1.0,
+          "q25": 6431.25,
+          "median": 10254.0,
+          "q75": 13229.75,
+          "max": 25026.0
+        },
+        "teacher_eval_rank_1_based": {
+          "mean": 9288.145405195812,
+          "std": 5273.720254359162,
+          "min": 1.0,
+          "q25": 6151.5,
+          "median": 10051.5,
+          "q75": 13020.5,
+          "max": 25007.0
+        },
+        "teacher_raw_target_hit_rate": {
+          "@20": 0.014734393175649476,
+          "@50": 0.0335401318340442,
+          "@100": 0.04808065141527724
+        },
+        "teacher_eval_target_hit_rate": {
+          "@20": 0.021326095385808454,
+          "@50": 0.03722373012795657,
+          "@100": 0.05331523846452113
+        },
+        "teacher_raw_target_mrr": 0.003003632421833759,
+        "teacher_eval_target_mrr": 0.005650525551535627
+      },
+      "front_loaded": {
+        "num_users": 1739,
+        "users_with_targets": 1739,
+        "num_targets": 2268,
+        "targets_per_user": {
+          "mean": 1.3041978148361126,
+          "std": 2.0544737025176545,
+          "min": 1.0,
+          "q25": 1.0,
+          "median": 1.0,
+          "q75": 1.0,
+          "max": 58.0
+        },
+        "train_item_popularity_per_target": {
+          "mean": 5.1080246913580245,
+          "std": 28.871503727576204,
+          "min": 0.0,
+          "q25": 0.0,
+          "median": 0.0,
+          "q75": 1.0,
+          "max": 352.0
+        },
+        "zero_train_popularity_fraction": 0.6221340388007055,
+        "teacher_raw_rank_1_based": {
+          "mean": 8632.48721340388,
+          "std": 5942.915088931161,
+          "min": 2.0,
+          "q25": 2166.5,
+          "median": 9512.5,
+          "q75": 12946.25,
+          "max": 25181.0
+        },
+        "teacher_eval_rank_1_based": {
+          "mean": 8600.198412698413,
+          "std": 5927.349507695826,
+          "min": 1.0,
+          "q25": 2146.5,
+          "median": 9477.5,
+          "q75": 12892.75,
+          "max": 25177.0
+        },
+        "teacher_raw_target_hit_rate": {
+          "@20": 0.03968253968253968,
+          "@50": 0.06525573192239859,
+          "@100": 0.08862433862433862
+        },
+        "teacher_eval_target_hit_rate": {
+          "@20": 0.0445326278659612,
+          "@50": 0.06878306878306878,
+          "@100": 0.09082892416225749
+        },
+        "teacher_raw_target_mrr": 0.006699039886374716,
+        "teacher_eval_target_mrr": 0.015808622649561333
+      }
+    }
+  },
   "capacities": {
     "5": {
       "checkpoints": {
@@ -1459,6 +1789,7 @@
     "The primary head-drop@20 signal and its direction were specified before inspecting this report.",
     "Each fixed-K checkpoint was already selected using validation; group routing reuses validation.",
     "A routed mixture of fixed-K checkpoints does not prove a dynamically trained single model will improve.",
-    "Seed 0 is exploratory; any surviving association requires confirmation on additional seeds."
+    "Seed 0 is exploratory; any surviving association requires confirmation on additional seeds.",
+    "Held-out target diagnostics are descriptive; they identify split differences but cannot by themselves establish their cause."
   ]
 }
