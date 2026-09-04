@@ -77,7 +77,7 @@ def recall_ndcg_at_k(topk_items, test_dict, num_users, ks=(10, 20)):
             idcg = discounts[:ideal].sum().item()
             ndcgs.append(dcg / idcg)
         results[f"Recall@{k}"] = sum(recalls) / max(len(recalls), 1)
-        results[f"NDCG@{k}"] = sum(ndcgs) / max(len(ndcgs), 1)
+        results[f"NDCG@{k}"] = float(sum(ndcgs) / max(len(ndcgs), 1))
     return results
 
 
