@@ -138,6 +138,8 @@ class SRCEKD(BaseKD4Rec):
     def __init__(self, args, teacher, student):
         super().__init__(args, teacher, student)
         self.model_name = "srcekd"
+        self.mode = getattr(args, "srce_mode", "union")
+        assert self.mode in ("union", "split")
         self.tau = args.mkd_tau
         self.K = args.mkd_K
         self.T = args.mkd_T
@@ -147,9 +149,12 @@ class SRCEKD(BaseKD4Rec):
         self.s = args.srce_s
         self.eta = args.srce_eta
         self.Lu = args.srce_Lu
+        # split mode keeps RCE-KD's two-loss structure and adaptive gamma
+        self.beta = getattr(args, "mkd_beta", 5.) if self.mode == "split" else None
         self.T_topk_dict = self.get_topk_dict(self.teacher, self.K)
 
         # observed (training) interactions, for the reliability correction
+        # (union mode only)
         observed_mat = torch.zeros((self.num_users, self.num_items), dtype=torch.bool)
         for u, items in self.dataset.train_dict.items():
             observed_mat[u, items] = True
@@ -167,11 +172,13 @@ class SRCEKD(BaseKD4Rec):
             S_topk_dict = self.get_topk_dict(self.student, self.mxK)
             # (approximate) student rank of every teacher top-K item:
             # position inside the student's top-mxK, or mxK if outside
-            matches = (self.T_topk_dict.unsqueeze(2) == S_topk_dict.unsqueeze(1))
-            present = matches.any(dim=2)
-            pos_in_mxK = matches.float().argmax(dim=2)
-            self.rankS_of_T = torch.where(present, pos_in_mxK,
-                                          torch.full_like(pos_in_mxK, self.mxK))
+            # (only needed by the soft closure weighting in union mode)
+            if self.mode == "union" and self.alpha != 0:
+                matches = (self.T_topk_dict.unsqueeze(2) == S_topk_dict.unsqueeze(1))
+                present = matches.any(dim=2)
+                pos_in_mxK = matches.float().argmax(dim=2)
+                self.rankS_of_T = torch.where(present, pos_in_mxK,
+                                              torch.full_like(pos_in_mxK, self.mxK))
             # rank-weighted closure samples from the student's top-mxK
             # (same sampling strategy as RCE-KD)
             weight_matrix = torch.zeros((self.num_users, self.mxK)).cuda()
@@ -205,6 +212,8 @@ class SRCEKD(BaseKD4Rec):
         return result
 
     def get_loss(self, *params):
+        if self.mode == "split":
+            return self.get_loss_split(*params)
         batch_users = params[0]
         itemS = self.itemS[batch_users]                         # batch_size x K, student top-K
         itemT = self.T_topk_dict[batch_users]                   # batch_size x K, teacher top-K
@@ -257,3 +266,53 @@ class SRCEKD(BaseKD4Rec):
         Z_S = (torch.exp(logit_S_all) * keep_all).sum(-1, keepdim=True)
         loss = -(prob_T_all * (logit_S_all - torch.log(Z_S))).sum(-1)
         return loss.sum()
+
+    def get_loss_split(self, *params):
+        """RCE-KD's original two-loss structure + adaptive gamma, with the
+        uniform tail samples merged into the closure sample set of L2.
+        With srce_Lu=0 this reduces exactly to RCEKD.get_loss."""
+        batch_users = params[0]
+        itemS = self.itemS[batch_users]                         # batch_size x K, student top-K
+        itemT = self.T_topk_dict[batch_users]                   # batch_size x K, teacher top-K
+        itemI = self.interesting_items[batch_users]             # batch_size x L, closure samples
+        itemU = self.uniform_items[batch_users]                 # batch_size x Lu, uniform samples
+        itemA = torch.cat([itemI, itemU], dim=-1)               # sampled set for L2
+
+        # ---- L1: CE on the student's top-K (unchanged from RCE-KD) ----
+        logit_S_itemS = self.student.forward_multi_items(batch_users, itemS) / self.tau
+        logit_T_itemS = self.teacher.forward_multi_items(batch_users, itemS) / self.tau
+        exp_logit_T_itemS = torch.exp(logit_T_itemS)
+        Z_T = exp_logit_T_itemS.sum(-1, keepdim=True)
+        prob_T_itemS = exp_logit_T_itemS / Z_T
+        loss_itemS = F.cross_entropy(logit_S_itemS, prob_T_itemS, reduction='none')
+
+        # ---- L2: CE on itemA + (Q^T \ Q^S), with dedup as in RCE-KD ----
+        logit_S_itemT = self.student.forward_multi_items(batch_users, itemT) / self.tau
+        logit_S_itemA = self.student.forward_multi_items(batch_users, itemA) / self.tau
+        logit_T_itemT = self.teacher.forward_multi_items(batch_users, itemT) / self.tau
+        logit_T_itemA = self.teacher.forward_multi_items(batch_users, itemA) / self.tau
+
+        # uniform samples colliding with rank-weighted samples are dropped
+        mask_U = self.rowwise_isin(itemU, itemI)
+        keep_A = torch.cat([torch.ones_like(itemI, dtype=torch.float),
+                            (~mask_U).float()], dim=-1)
+        exp_logit_T_itemA = torch.exp(logit_T_itemA) * keep_A
+        exp_logit_T_itemT = torch.exp(logit_T_itemT)
+        mask = self.rowwise_isin(itemT, itemA)
+        exp_logit_T_itemT[mask] = 0
+        mask2 = self.rowwise_isin(itemT, itemS)
+        exp_logit_T_itemT[mask2] = 0
+        Z_T = exp_logit_T_itemA.sum(-1, keepdim=True) + exp_logit_T_itemT.sum(-1, keepdim=True)
+        prob_T_all = torch.cat([exp_logit_T_itemA, exp_logit_T_itemT], dim=-1) / Z_T
+        exp_logit_S_itemT = torch.exp(logit_S_itemT)
+        exp_logit_S_itemT = exp_logit_S_itemT * (1. - mask.float()) * (1. - mask2.float())
+        exp_logit_S_itemA = torch.exp(logit_S_itemA) * keep_A
+        Z_S = exp_logit_S_itemA.sum(-1, keepdim=True) + exp_logit_S_itemT.sum(-1, keepdim=True)
+        logit_S_all = torch.cat([logit_S_itemA, logit_S_itemT], dim=-1)
+        loss_itemT = -(prob_T_all * (logit_S_all - torch.log(Z_S))).sum(-1)
+
+        # ---- adaptive fusion (identical to RCE-KD) ----
+        overlap = self.rowwise_isin(itemT, itemI).float().mean(-1)
+        weight = torch.exp(-self.beta * overlap)
+        loss = ((1 - weight) * loss_itemS + weight * loss_itemT).sum()
+        return loss

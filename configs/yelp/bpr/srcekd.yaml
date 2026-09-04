@@ -10,6 +10,8 @@ bpr:
   mkd_T: 10
   mkd_mxK: 100
   srce_alpha: 1
+  srce_mode: union
+  mkd_beta: 5
   srce_s: 20
   srce_eta: 1
   srce_Lu: 20
@@ -26,6 +28,8 @@ lightgcn:
   mkd_T: 10
   mkd_mxK: 500
   srce_alpha: 1
+  srce_mode: union
+  mkd_beta: 11
   srce_s: 20
   srce_eta: 1
   srce_Lu: 20
@@ -42,6 +46,8 @@ hstu:
   mkd_T: 10
   mkd_mxK: 500
   srce_alpha: 1
+  srce_mode: union
+  mkd_beta: 0.5
   srce_s: 20
   srce_eta: 1
   srce_Lu: 20

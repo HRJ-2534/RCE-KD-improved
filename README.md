@@ -98,11 +98,10 @@ The codes for all backbones are provided in `modeling/backbone/`.
 
 ## 🔧 Our Extension: SRCE-KD (work in progress)
 
-This fork adds **SRCE-KD** (Soft-closure & Reliability-aware RCE-KD), which improves RCE-KD in three ways:
+This fork adds **SRCE-KD** (an experimental extension of RCE-KD) with two modes (`--cfg srce_mode=...`):
 
-1. **Soft closure weighting**: the hard split of the teacher's top-K (plus the adaptive fusion weight γ) is replaced by a single CE loss on the union item set, where each teacher item is weighted continuously by the student's rank of it: `w_i = 1 + alpha * sigmoid((rank_S(i) - K) / s)`. The limit `s -> 0` recovers RCE-KD's hard split.
-2. **Tail coverage**: besides the rank-weighted samples inside the student's top-mxK, a few uniformly sampled items (`srce_Lu`) are added so that "blocking" items beyond the student's top-mxK are also covered.
-3. **Teacher reliability correction**: teacher items confirmed by the user's real training interactions are boosted by `1 + srce_eta`, so the student imitates *verified* teacher knowledge rather than the raw teacher.
+1. **`union`** (default): replaces the hard split + adaptive γ with a single CE on the union item set (student top-K ∪ teacher top-K ∪ closure samples ∪ uniform samples), with optional soft rank-based weights (`srce_alpha`) and reliability correction (`srce_eta`). *Pre-research finding: this mode helps slightly in homogeneous KD but collapses in heterogeneous KD — kept for ablation.*
+2. **`split`**: keeps RCE-KD's original two-loss structure and adaptive γ untouched, and merges `srce_Lu` uniform tail samples into the closure sample set of L2, covering teacher items ranked beyond the student's top-mxK (the blind region of RCE-KD's sampling, ~10-18% of teacher top items in our diagnostics). With `srce_Lu=0` this mode reduces exactly to RCE-KD.
 
 Code: `modeling/KD/playground.py` (class `SRCEKD`, `--model=srcekd`). Configs: `configs/<dataset>/<S_backbone>/srcekd.yaml`.
 

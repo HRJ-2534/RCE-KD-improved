@@ -10,6 +10,8 @@ lightgcn:
   mkd_T: 10
   mkd_mxK: 200
   srce_alpha: 1
+  srce_mode: union
+  mkd_beta: 15
   srce_s: 20
   srce_eta: 1
   srce_Lu: 20

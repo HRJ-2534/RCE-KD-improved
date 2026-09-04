@@ -58,3 +58,7 @@ python -u diagnose.py --dataset=citeulike --T_backbone=bpr --S_backbone=bpr --mo
 # stage 2: effectiveness check of SRCE-KD (1 seed first, then --run_all for 5 seeds)
 python -u main.py --dataset=citeulike --S_backbone=bpr --T_backbone=bpr --model=srcekd
 python -u main.py --dataset=gowalla --S_backbone=lightgcn --T_backbone=lightgcn --model=srcekd
+
+# stage 3: split mode (RCE-KD + uniform tail coverage, the main candidate)
+python -u main.py --dataset=citeulike --S_backbone=bpr --T_backbone=bpr --model=srcekd --cfg srce_mode=split srce_Lu=20 early_stop_K=20 --suffix splitLu20_homo_seed0
+python -u main.py --dataset=citeulike --S_backbone=bpr --T_backbone=lightgcn --model=srcekd --cfg srce_mode=split srce_Lu=20 early_stop_K=20 --suffix splitLu20_het_seed0

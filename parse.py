@@ -49,6 +49,8 @@ parser.add_argument('--srce_alpha', type=float, default=1., help="max extra weig
 parser.add_argument('--srce_s', type=float, default=20., help="softness of the rank margin, in rank units")
 parser.add_argument('--srce_eta', type=float, default=1., help="reliability boost for ground-truth-confirmed teacher items")
 parser.add_argument('--srce_Lu', type=int, default=20, help="number of uniform tail samples per user")
+parser.add_argument('--srce_mode', type=str, default='union', choices=['union', 'split'],
+                    help="union: single CE on the union set; split: keep RCE-KD's two losses + adaptive gamma and only merge uniform samples into L2")
 
 parser.add_argument('--eval_period', type=int, default=1)
 parser.add_argument('--K_list', type=list, default=[10, 20])
