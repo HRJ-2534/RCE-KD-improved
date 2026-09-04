@@ -1,0 +1,36 @@
+[teacher] checkpoints/citeulike/bpr/scratch-400/BEST_EPOCH.pt
+[student] checkpoints/citeulike/bpr/arcekd-20_anchor_marginal_es20/BEST_EPOCH.pt
+[users] 5216/5219 have active Q2 targets
+[comparison] fixed anchors/Q2, exact full-catalog residual closure, Top-M=[200, 400, 800]
+  users 0:32/5219
+  users 800:832/5219
+  users 1600:1632/5219
+  users 2400:2432/5219
+  users 3200:3232/5219
+  users 4000:4032/5219
+  users 4800:4832/5219
+  users 5216:5219/5219
+
+[summary: exact fixed-Q2 penalty reduction after anchors]
+  Top-M=200
+    anchor_count_static          reduction=0.065729 gain=-0.001032 win=0.443 select=0.007ms/user
+    anchor_marginal_static       reduction=0.066761 gain=+0.000000 win=0.000 select=0.006ms/user
+    anchor_marginal_topl         reduction=0.111289 gain=+0.044528 win=1.000 select=0.002ms/user
+    anchor_residual_sequential   reduction=0.067598 gain=+0.000837 win=0.616 select=0.791ms/user
+    anchor_residual_greedy       reduction=0.111289 gain=+0.044528 win=1.000 select=0.689ms/user
+    greedy == marginal Top-L: 1.000
+  Top-M=400
+    anchor_count_static          reduction=0.048802 gain=-0.005296 win=0.327 select=0.006ms/user
+    anchor_marginal_static       reduction=0.054098 gain=+0.000000 win=0.000 select=0.005ms/user
+    anchor_marginal_topl         reduction=0.111289 gain=+0.057191 win=1.000 select=0.002ms/user
+    anchor_residual_sequential   reduction=0.053945 gain=-0.000154 win=0.599 select=0.796ms/user
+    anchor_residual_greedy       reduction=0.111289 gain=+0.057191 win=1.000 select=0.683ms/user
+    greedy == marginal Top-L: 1.000
+  Top-M=800
+    anchor_count_static          reduction=0.035674 gain=-0.010562 win=0.234 select=0.006ms/user
+    anchor_marginal_static       reduction=0.046236 gain=+0.000000 win=0.000 select=0.006ms/user
+    anchor_marginal_topl         reduction=0.111289 gain=+0.065053 win=1.000 select=0.002ms/user
+    anchor_residual_sequential   reduction=0.044185 gain=-0.002051 win=0.582 select=0.800ms/user
+    anchor_residual_greedy       reduction=0.111289 gain=+0.065053 win=1.000 select=0.689ms/user
+    greedy == marginal Top-L: 1.000
+  report saved to logs/setwise_closure_citeulike_bpr-bpr_arcekd_d20_k50_l50_m200-400-800_seed0.json
