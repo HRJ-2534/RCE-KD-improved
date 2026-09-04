@@ -1,0 +1,52 @@
+{
+  "dataset": "citeulike",
+  "teacher": "bpr",
+  "student": "bpr",
+  "model": "rcekd",
+  "K": 50,
+  "mxK": 200,
+  "dynamics": [
+    {
+      "checkpoint": "BEST_EPOCH.pt",
+      "epoch": 1000000000,
+      "overlap_ratio": 0.7282007932662964,
+      "teacher_item_rank_in_student": {
+        "mean": 157.38133239746094,
+        "median": 26.0,
+        "frac_beyond_mxK": 0.10187391936779022,
+        "frac_beyond_1000": 0.026863383129239082
+      }
+    }
+  ],
+  "teacher_reliability": {
+    "overall_hit_rate": 0.005606438033282757,
+    "hit_rate_popularity_quartile_1": 0.014850711449980736,
+    "hit_rate_popularity_quartile_2": 0.004529735539108515,
+    "hit_rate_popularity_quartile_3": 0.0035384672228246927,
+    "hit_rate_popularity_quartile_4": 0.005701590795069933
+  },
+  "bias_and_accuracy": {
+    "ARP@20": {
+      "teacher": 35.190025329589844,
+      "student": 33.43510437011719
+    },
+    "longtail_Recall@20": {
+      "teacher": 0.006514224484903698,
+      "student": 0.00670412221450666
+    },
+    "overall": {
+      "teacher": {
+        "Recall@10": 0.027467506770224213,
+        "NDCG@10": 0.015513884834945202,
+        "Recall@20": 0.0438492130581555,
+        "NDCG@20": 0.020030783489346504
+      },
+      "student": {
+        "Recall@10": 0.027445581924409285,
+        "NDCG@10": 0.015269352123141289,
+        "Recall@20": 0.042474003716578924,
+        "NDCG@20": 0.019355831667780876
+      }
+    }
+  }
+}
