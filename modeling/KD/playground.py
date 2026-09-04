@@ -125,7 +125,9 @@ class SRCEKD(BaseKD4Rec):
        downweighted. Only training interactions are used (no leakage).
 
     New hyperparameters (with defaults in parse.py):
-        srce_alpha : max extra weight of badly-ranked teacher items (>=0)
+        srce_alpha : max extra weight of badly-ranked teacher items;
+                     alpha > 0 upweights them, alpha < 0 downweights them
+                     (keep alpha > -1 so weights stay positive)
         srce_s     : softness of the rank margin, in rank units (>0);
                      s -> 0 recovers the hard split of RCE-KD
         srce_eta   : reliability boost for ground-truth-confirmed items (>=0)
@@ -225,10 +227,11 @@ class SRCEKD(BaseKD4Rec):
         # ---- target distribution: weighted teacher softmax ----
         logit_T_all = self.teacher.forward_multi_items(batch_users, items_all) / self.tau
         target_weight = torch.ones_like(logit_T_all)
-        if self.alpha > 0:
+        if self.alpha != 0:
             # soft closure weight for teacher items: entries in itemS that are
             # also teacher top-K use their (exact) student rank < K; deduplicated
-            # itemT entries use rankS_of_T
+            # itemT entries use rankS_of_T. alpha > 0 upweights badly-ranked
+            # teacher items; alpha < 0 downweights them (weights stay positive).
             K = self.K
             rank_itemS = torch.arange(K, device=itemS.device).expand_as(itemS).float()
             in_QT_itemS = self.rowwise_isin(itemS, itemT).float()
