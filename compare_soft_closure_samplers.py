@@ -156,6 +156,58 @@ def proposal_entropy(probabilities):
     return -(probabilities * safe_log).sum(dim=1)
 
 
+def prepare_teacher_anchors(student_topm, teacher_topk, teacher_scores,
+                            k, length):
+    """Select up to ``length`` Q1 anchors, ordered by teacher confidence."""
+    if not (0 < k <= student_topm.shape[1]):
+        raise ValueError("k must be within the student top-M width")
+    if not (0 < length <= student_topm.shape[1]):
+        raise ValueError("length must be within the student top-M width")
+    topk_position = (
+        torch.arange(student_topm.shape[1], device=student_topm.device)
+        .unsqueeze(0) < k
+    )
+    anchor_mask = topk_position & rowwise_isin(student_topm, teacher_topk)
+    teacher_scores_m = teacher_scores.gather(1, student_topm)
+    anchor_priority = torch.where(
+        anchor_mask, teacher_scores_m,
+        torch.full_like(teacher_scores_m, -float("inf")),
+    )
+    anchor_positions = torch.topk(
+        anchor_priority, length, dim=1,
+    ).indices
+    anchor_active = anchor_mask.gather(1, anchor_positions)
+    return anchor_positions, anchor_active
+
+
+def sample_anchor_preserving(student_topm, anchor_positions, anchor_active,
+                             blocker_probabilities, length, generator=None):
+    """Keep every active anchor, then fill the fixed budget with blockers."""
+    blocker_positions = torch.multinomial(
+        blocker_probabilities, length, replacement=False, generator=generator,
+    )
+    combined_positions = torch.cat([anchor_positions, blocker_positions], dim=1)
+    combined_active = torch.cat([
+        anchor_active,
+        torch.ones_like(blocker_positions, dtype=torch.bool),
+    ], dim=1)
+    # Entries are already ordered as anchors then sampled blockers. Selecting
+    # the first L active entries gives every user exactly L unique items: the
+    # blocker proposal excludes all teacher items and is itself sampled
+    # without replacement.
+    order = torch.arange(
+        combined_positions.shape[1], device=combined_positions.device,
+    ).unsqueeze(0)
+    priority = torch.where(
+        combined_active,
+        combined_positions.new_tensor(combined_positions.shape[1]) - order,
+        combined_positions.new_tensor(-1),
+    )
+    selected_columns = torch.topk(priority, length, dim=1).indices
+    selected_positions = combined_positions.gather(1, selected_columns)
+    return student_topm.gather(1, selected_positions)
+
+
 def resolve_student_checkpoint(args):
     directory = f"{args.model.lower()}-{args.student_dim}"
     if args.suffix:
@@ -258,11 +310,19 @@ def main():
         "marginal_mass", "uniform",
     ]
     no_teacher_names = [f"{name}_no_teacher" for name in full_support_names]
-    sampler_names = full_support_names + no_teacher_names
+    anchor_source = {
+        "anchor_original_count": "original_code_count_no_teacher",
+        "anchor_teacher_student_mass": "teacher_student_mass_no_teacher",
+        "anchor_marginal_mass": "marginal_mass_no_teacher",
+        "anchor_uniform": "uniform_no_teacher",
+    }
+    anchor_names = list(anchor_source)
+    sampler_names = full_support_names + no_teacher_names + anchor_names
     comparison_baseline = {
         name: (
-            "original_code_count_no_teacher"
-            if name.endswith("_no_teacher") else "original_code_count"
+            "anchor_original_count" if name.startswith("anchor_")
+            else "original_code_count_no_teacher" if name.endswith("_no_teacher")
+            else "original_code_count"
         )
         for name in sampler_names
     }
@@ -272,6 +332,7 @@ def main():
     entropies = {name: [] for name in sampler_names}
     trial_means = {name: [[] for _ in range(args.trials)] for name in sampler_names}
     base_penalties = []
+    anchor_counts = []
     generators = {
         (name, trial): torch.Generator(device=device).manual_seed(
             args.seed + 1009 * trial + 7919 * (index + 1)
@@ -306,6 +367,10 @@ def main():
             score_temperature=args.score_temperature,
             mix_alpha=args.mix_alpha,
         )
+        anchor_positions, anchor_active = prepare_teacher_anchors(
+            items_m, items_t, scores_t, k, length,
+        )
+        anchor_counts.append(anchor_active.sum(dim=1).cpu())
 
         for name, probabilities in proposals.items():
             entropy = proposal_entropy(probabilities).cpu()
@@ -331,10 +396,36 @@ def main():
                 ).cpu())
                 trial_means[name][trial].append(reduction.detach().cpu())
 
+        for name, source_name in anchor_source.items():
+            probabilities = proposals[source_name]
+            entropies[name].append(proposal_entropy(probabilities).cpu())
+            for trial in range(args.trials):
+                sampled = sample_anchor_preserving(
+                    items_m, anchor_positions, anchor_active, probabilities,
+                    length, generators[(name, trial)],
+                )
+                items_j, active_j = active_l2_set(
+                    sampled, items_t, active_q2,
+                )
+                rho_after = exact_soft_closure_rho(
+                    scores_s, items_j, active_j, catalog_cache=cache,
+                )
+                after = soft_closure_bound_terms(
+                    scores_s, scores_t, items_j, active_j, rho_after,
+                )["penalty"]
+                reduction = base - after
+                after_penalties[name].append(after.cpu())
+                reductions[name].append(reduction.cpu())
+                reduction_ratios[name].append((
+                    reduction / base.clamp_min(1e-12)
+                ).cpu())
+                trial_means[name][trial].append(reduction.detach().cpu())
+
         if start == 0 or end == num_users or (start // args.user_batch_size) % 25 == 0:
             print(f"  users {start}:{end}/{num_users}")
 
     base_penalties = torch.cat(base_penalties).double()
+    anchor_counts = torch.cat(anchor_counts).double()
     samplers = {}
     for name in sampler_names:
         reduction = torch.cat(reductions[name]).double()
@@ -368,6 +459,15 @@ def main():
         samplers[name]["paired_tie_fraction_with_baseline"] = (
             paired_gain == 0.
         ).double().mean().item()
+        repository_gain = candidate - torch.cat(
+            reductions["original_code_count"]
+        ).double()
+        samplers[name]["paired_gain_over_repository_original"] = summarize_tensor(
+            repository_gain
+        )
+        samplers[name]["paired_win_fraction_over_repository_original"] = (
+            repository_gain > 0.
+        ).double().mean().item()
 
     report = {
         "experiment": {
@@ -387,12 +487,15 @@ def main():
             "primary_endpoint": "exact soft-closure penalty reduction at fixed L",
         },
         "eligible_users": eligible_users.sum().item(),
+        "q1_anchor_count": summarize_tensor(anchor_counts),
         "base_q2_exact_penalty": summarize_tensor(base_penalties),
         "samplers": samplers,
         "guardrails": [
             "This is a checkpoint-level sampler test, not a training-performance result.",
             "Full-support variants all use the repository's original student top-M support, including teacher top-K items.",
             "Teacher-excluded variants form a separate support ablation and are compared only with original_code_count_no_teacher.",
+            "Anchor variants deterministically retain Q1=teacher-top-K intersect student-top-K, then fill the remaining fixed-L budget from a teacher-excluded proposal.",
+            "If Q1 exceeds L, the L anchors with highest teacher scores are retained.",
             "Mass samplers use a uniform mixture so every candidate in their declared support has nonzero probability.",
             "The marginal score is a first-order removal approximation, not the exact discrete set-addition gain.",
         ],

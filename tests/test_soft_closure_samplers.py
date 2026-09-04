@@ -5,6 +5,8 @@ import torch
 from compare_soft_closure_samplers import (
     build_sampler_probabilities,
     normalize_with_uniform_mixture,
+    prepare_teacher_anchors,
+    sample_anchor_preserving,
 )
 from soft_closure import exact_soft_closure_rho, prepare_soft_closure_catalog
 
@@ -65,6 +67,33 @@ class SoftClosureSamplerTests(unittest.TestCase):
         eligible = torch.tensor([[True, True, False, False]])
         proposal = normalize_with_uniform_mixture(raw, eligible, 1.)
         torch.testing.assert_close(proposal, torch.tensor([[.5, .5, 0., 0.]]))
+
+    def test_anchor_sampler_keeps_q1_and_fills_with_unique_nonteacher_items(self):
+        student_topm = torch.tensor([
+            [0, 1, 2, 3, 4, 5],
+            [5, 4, 3, 2, 1, 0],
+        ])
+        teacher_topk = torch.tensor([[1, 4], [5, 4]])
+        teacher_scores = torch.tensor([
+            [0., 9., 1., 2., 8., 3.],
+            [0., 1., 2., 3., 8., 9.],
+        ])
+        positions, active = prepare_teacher_anchors(
+            student_topm, teacher_topk, teacher_scores, k=3, length=2,
+        )
+        # Row 0 has one Q1 anchor (item 1); row 1 has two (items 5 and 4).
+        self.assertEqual(active.sum(1).tolist(), [1, 2])
+        probabilities = torch.tensor([
+            [.25, 0., .25, .25, 0., .25],
+            [0., 0., .25, .25, .25, .25],
+        ])
+        sampled = sample_anchor_preserving(
+            student_topm, positions, active, probabilities, length=2,
+            generator=torch.Generator().manual_seed(9),
+        )
+        self.assertIn(1, sampled[0].tolist())
+        self.assertEqual(set(sampled[1].tolist()), {4, 5})
+        self.assertEqual(len(set(sampled[0].tolist())), 2)
 
 
 if __name__ == "__main__":
