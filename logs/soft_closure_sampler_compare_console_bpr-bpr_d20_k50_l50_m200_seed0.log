@@ -1,0 +1,20 @@
+[teacher] checkpoints/citeulike/bpr/scratch-400/BEST_EPOCH.pt
+[student] checkpoints/citeulike/bpr/rcekd-20/BEST_EPOCH.pt
+[users] 5207/5219 have at least one teacher top-K item outside student top-K
+[comparison] exact post-sampling penalty, shared full-catalog sort per batch
+  users 0:32/5219
+  users 800:832/5219
+  users 1600:1632/5219
+  users 2400:2432/5219
+  users 3200:3232/5219
+  users 4000:4032/5219
+  users 4800:4832/5219
+  users 5216:5219/5219
+
+[summary: mean exact penalty reduction]
+  original_code_count      reduction=3.590291 gain_vs_original=+0.000000 paired_win=0.000
+  q2_count                 reduction=1.899182 gain_vs_original=-1.691110 paired_win=0.000
+  teacher_student_mass     reduction=2.034560 gain_vs_original=-1.555732 paired_win=0.000
+  marginal_mass            reduction=2.050648 gain_vs_original=-1.539644 paired_win=0.000
+  uniform                  reduction=1.818185 gain_vs_original=-1.772106 paired_win=0.000
+  report saved to logs/soft_closure_sampler_compare_citeulike_bpr-bpr_d20_k50_l50_m200_seed0.json
