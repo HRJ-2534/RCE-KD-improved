@@ -2,7 +2,12 @@ import unittest
 
 import torch
 
-from analyze_teacher_scope import cutoff_histogram, teacher_scope_features
+from analyze_teacher_scope import (
+    cutoff_histogram,
+    exact_target_ranks,
+    split_target_diagnostics,
+    teacher_scope_features,
+)
 
 
 class TeacherScopeFeatureTests(unittest.TestCase):
@@ -37,6 +42,40 @@ class TeacherScopeFeatureTests(unittest.TestCase):
         histogram = cutoff_histogram(torch.tensor([1, 20, 21, 50, 51, 100]))
         self.assertEqual([histogram[name]["count"] for name in ("1-20", "21-50", "51-100")], [2, 2, 2])
         self.assertAlmostEqual(sum(histogram[name]["fraction"] for name in histogram), 1.)
+
+    def test_exact_target_ranks_support_raw_and_train_masked_candidates(self):
+        scores = torch.tensor([
+            [9., 8., 7., 6.],
+            [1., 4., 3., 2.],
+        ])
+        targets = {0: torch.tensor([1, 3]), 1: torch.tensor([2])}
+        train = {0: torch.tensor([0]), 1: torch.tensor([1])}
+        pairs, raw = exact_target_ranks(scores, targets, train, 2)
+        masked_pairs, masked = exact_target_ranks(
+            scores, targets, train, 2, mask_train=True,
+        )
+        self.assertTrue(torch.equal(pairs, masked_pairs))
+        self.assertTrue(torch.equal(raw, torch.tensor([2, 4, 2])))
+        self.assertTrue(torch.equal(masked, torch.tensor([1, 3, 1])))
+
+    def test_split_target_diagnostics_preserve_interaction_weighting(self):
+        scores = torch.tensor([
+            [9., 8., 7., 6.],
+            [1., 4., 3., 2.],
+        ])
+        targets = {0: torch.tensor([1, 3]), 1: torch.tensor([2])}
+        train = {0: torch.tensor([0]), 1: torch.tensor([1])}
+        item_pop = torch.tensor([2, 4, 0, 3])
+        groups = [("first", torch.tensor([0])), ("second", torch.tensor([1]))]
+        report = split_target_diagnostics(
+            scores, targets, train, item_pop, groups, 2, cutoffs=(1, 2),
+        )
+        self.assertEqual(report["first"]["num_targets"], 2)
+        self.assertEqual(report["first"]["targets_per_user"]["mean"], 2.)
+        self.assertEqual(report["first"]["train_item_popularity_per_target"]["mean"], 3.5)
+        self.assertEqual(report["second"]["zero_train_popularity_fraction"], 1.)
+        self.assertEqual(report["second"]["teacher_raw_target_hit_rate"]["@2"], 1.)
+        self.assertEqual(report["second"]["teacher_eval_target_hit_rate"]["@1"], 1.)
 
 
 if __name__ == "__main__":

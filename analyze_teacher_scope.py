@@ -90,6 +90,118 @@ def cutoff_histogram(max_gap_rank):
     }
 
 
+def exact_target_ranks(score_mat, target_dict, train_dict, num_users,
+                       mask_train=False, user_chunk_size=128):
+    """Return target pairs and their exact 1-based teacher ranks.
+
+    Ranking is computed in user chunks so that target rows are never expanded
+    for the full dataset at once.  With ``mask_train=True`` this reproduces the
+    candidate set used by evaluation while retaining the raw-rank variant that
+    matches the teacher knowledge consumed by RCE-KD.
+    """
+    pair_chunks = []
+    rank_chunks = []
+    device = score_mat.device
+    for start in range(0, num_users, user_chunk_size):
+        end = min(start + user_chunk_size, num_users)
+        users = []
+        items = []
+        for user in range(start, end):
+            truth = target_dict.get(user)
+            if truth is None or truth.numel() == 0:
+                continue
+            users.extend([user] * truth.numel())
+            items.extend(truth.tolist())
+        if not users:
+            continue
+
+        scores = score_mat[start:end].clone() if mask_train else score_mat[start:end]
+        if mask_train:
+            for user in range(start, end):
+                seen = train_dict.get(user)
+                if seen is not None and seen.numel() > 0:
+                    scores[user - start, seen.to(device)] = -float("inf")
+
+        user_tensor = torch.tensor(users, dtype=torch.long)
+        item_tensor = torch.tensor(items, dtype=torch.long)
+        local_users = (user_tensor - start).to(device)
+        device_items = item_tensor.to(device)
+        target_scores = scores[local_users, device_items]
+        ranks = (scores[local_users] > target_scores.unsqueeze(1)).sum(dim=1) + 1
+        pair_chunks.append(torch.stack([user_tensor, item_tensor], dim=1))
+        rank_chunks.append(ranks.cpu())
+
+    if not pair_chunks:
+        return torch.empty((0, 2), dtype=torch.long), torch.empty(0, dtype=torch.long)
+    return torch.cat(pair_chunks), torch.cat(rank_chunks)
+
+
+def _target_summary(values):
+    if values.numel() == 0:
+        return None
+    return summarize(values)
+
+
+def split_target_diagnostics(score_mat, split_dict, train_dict, item_pop,
+                             groups, num_users, cutoffs=(20, 50, 100)):
+    """Describe held-out targets by group without using student predictions."""
+    pairs, raw_ranks = exact_target_ranks(
+        score_mat, split_dict, train_dict, num_users, mask_train=False,
+    )
+    eval_pairs, eval_ranks = exact_target_ranks(
+        score_mat, split_dict, train_dict, num_users, mask_train=True,
+    )
+    if not torch.equal(pairs, eval_pairs):
+        raise RuntimeError("raw and train-masked target pair order differs")
+
+    pair_users = pairs[:, 0]
+    pair_items = pairs[:, 1]
+    target_popularity = item_pop[pair_items].double()
+    per_user_counts = torch.zeros(num_users, dtype=torch.long)
+    if pair_users.numel() > 0:
+        per_user_counts.scatter_add_(0, pair_users, torch.ones_like(pair_users))
+
+    report = {}
+    for name, users in groups:
+        user_mask = torch.zeros(num_users, dtype=torch.bool)
+        user_mask[users] = True
+        target_mask = user_mask[pair_users]
+        group_raw_ranks = raw_ranks[target_mask]
+        group_eval_ranks = eval_ranks[target_mask]
+        group_popularity = target_popularity[target_mask]
+        group_counts = per_user_counts[users]
+        report[name] = {
+            "num_users": users.numel(),
+            "users_with_targets": (group_counts > 0).sum().item(),
+            "num_targets": target_mask.sum().item(),
+            "targets_per_user": _target_summary(group_counts.double()),
+            "train_item_popularity_per_target": _target_summary(group_popularity),
+            "zero_train_popularity_fraction": (
+                (group_popularity == 0).double().mean().item()
+                if group_popularity.numel() else None
+            ),
+            "teacher_raw_rank_1_based": _target_summary(group_raw_ranks.double()),
+            "teacher_eval_rank_1_based": _target_summary(group_eval_ranks.double()),
+            "teacher_raw_target_hit_rate": {
+                f"@{cutoff}": (group_raw_ranks <= cutoff).double().mean().item()
+                for cutoff in cutoffs
+            },
+            "teacher_eval_target_hit_rate": {
+                f"@{cutoff}": (group_eval_ranks <= cutoff).double().mean().item()
+                for cutoff in cutoffs
+            },
+            "teacher_raw_target_mrr": (
+                group_raw_ranks.double().reciprocal().mean().item()
+                if group_raw_ranks.numel() else None
+            ),
+            "teacher_eval_target_mrr": (
+                group_eval_ranks.double().reciprocal().mean().item()
+                if group_eval_ranks.numel() else None
+            ),
+        }
+    return report
+
+
 def resolve_student_checkpoint(args, dimension, k):
     suffix = f"capacity_d{dimension}_k{k}_l{args.L}_seed{args.seed}"
     candidates = [
@@ -181,7 +293,7 @@ def main():
     )
     teacher_top = torch.topk(teacher_scores, args.anchor_K + 1, dim=1)
     top_values = teacher_top.values.cpu()
-    del teacher_scores, teacher_top
+    del teacher_top
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -194,6 +306,19 @@ def main():
         for name, values in features.items()
     }
     feature_report["max_gap_rank_buckets"] = cutoff_histogram(features["max_gap_rank"])
+    target_diagnostics = {
+        "valid": split_target_diagnostics(
+            teacher_scores, valid_dict, train_dict, item_pop, groups, num_users,
+            cutoffs=tuple(args.K_values),
+        ),
+        "test": split_target_diagnostics(
+            teacher_scores, test_dict, train_dict, item_pop, groups, num_users,
+            cutoffs=tuple(args.K_values),
+        ),
+    }
+    del teacher_scores
+    gc.collect()
+    torch.cuda.empty_cache()
 
     capacities = {}
     for dimension in args.student_dims:
@@ -272,6 +397,7 @@ def main():
             "teacher_checkpoint": teacher_checkpoint,
         },
         "teacher_scope_features": feature_report,
+        "teacher_group_target_diagnostics": target_diagnostics,
         "capacities": capacities,
         "limitations": [
             "BPR scores are uncalibrated logits; only affine-scale-invariant curve-shape features are compared across users.",
@@ -279,6 +405,7 @@ def main():
             "Each fixed-K checkpoint was already selected using validation; group routing reuses validation.",
             "A routed mixture of fixed-K checkpoints does not prove a dynamically trained single model will improve.",
             "Seed 0 is exploratory; any surviving association requires confirmation on additional seeds.",
+            "Held-out target diagnostics are descriptive; they identify split differences but cannot by themselves establish their cause.",
         ],
     }
     output = args.output or os.path.join(
