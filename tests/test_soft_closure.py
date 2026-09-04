@@ -5,6 +5,7 @@ import torch
 from soft_closure import (
     exact_partial_log_ndcg,
     exact_soft_closure_rho,
+    prepare_soft_closure_catalog,
     soft_closure_bound_terms,
     topm_soft_closure_rho,
 )
@@ -57,6 +58,18 @@ class SoftClosureTheoryTests(unittest.TestCase):
         padded = soft_closure_bound_terms(student, teacher, padded_items, active)
         for key in ("ce", "penalty", "log_c_j", "lower_bound"):
             torch.testing.assert_close(short[key], padded[key])
+
+    def test_reused_catalog_cache_is_exact(self):
+        generator = torch.Generator().manual_seed(17)
+        scores = torch.randn((4, 13), generator=generator, dtype=torch.float64)
+        items = torch.stack([
+            torch.randperm(13, generator=generator)[:5] for _ in range(4)
+        ])
+        direct = exact_soft_closure_rho(scores, items)
+        cached = exact_soft_closure_rho(
+            scores, items, catalog_cache=prepare_soft_closure_catalog(scores),
+        )
+        torch.testing.assert_close(cached, direct)
 
 
 if __name__ == "__main__":

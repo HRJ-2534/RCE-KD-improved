@@ -27,7 +27,27 @@ def _validate_inputs(student_scores, items, active_mask):
     return active_mask.bool()
 
 
-def exact_soft_closure_rho(student_scores, items, active_mask=None):
+def prepare_soft_closure_catalog(student_scores):
+    """Precompute full-catalog quantities reusable across candidate sets."""
+    if student_scores.ndim != 2:
+        raise ValueError("student_scores must be a rank-2 tensor")
+    shift = student_scores.max(dim=1, keepdim=True).values
+    sorted_scores = student_scores.sort(dim=1, descending=True).values
+    sorted_mass = torch.exp(sorted_scores - shift)
+    prefix_mass = torch.cat([
+        torch.zeros((student_scores.shape[0], 1), device=student_scores.device,
+                    dtype=student_scores.dtype),
+        sorted_mass.cumsum(dim=1),
+    ], dim=1)
+    return {
+        "shift": shift,
+        "sorted_scores": sorted_scores,
+        "prefix_mass": prefix_mass,
+    }
+
+
+def exact_soft_closure_rho(student_scores, items, active_mask=None,
+                           catalog_cache=None):
     """Compute rho exactly over every item using sorted prefix masses.
 
     This avoids materializing a ``batch x |J| x num_items`` tensor.  Scores
@@ -39,17 +59,18 @@ def exact_soft_closure_rho(student_scores, items, active_mask=None):
     active = active_mask.to(student_scores.device)
     scores_j = student_scores.gather(1, device_items)
 
-    shift = student_scores.max(dim=1, keepdim=True).values
+    if catalog_cache is None:
+        catalog_cache = prepare_soft_closure_catalog(student_scores)
+    shift = catalog_cache["shift"]
+    sorted_scores = catalog_cache["sorted_scores"]
+    prefix_mass = catalog_cache["prefix_mass"]
+    expected_prefix_shape = (student_scores.shape[0], student_scores.shape[1] + 1)
+    if shift.shape != (student_scores.shape[0], 1):
+        raise ValueError("catalog_cache shift has an incompatible shape")
+    if sorted_scores.shape != student_scores.shape or prefix_mass.shape != expected_prefix_shape:
+        raise ValueError("catalog_cache has incompatible sorted-score or prefix shapes")
     exp_j = torch.exp(scores_j - shift) * active
     mass_j = exp_j.sum(dim=1, keepdim=True).clamp_min(torch.finfo(student_scores.dtype).tiny)
-
-    sorted_scores = student_scores.sort(dim=1, descending=True).values
-    sorted_mass = torch.exp(sorted_scores - shift)
-    prefix_mass = torch.cat([
-        torch.zeros((student_scores.shape[0], 1), device=student_scores.device,
-                    dtype=student_scores.dtype),
-        sorted_mass.cumsum(dim=1),
-    ], dim=1)
     # Negated descending scores are ascending. right=True counts every score
     # greater than or equal to the target, including exact ties.
     prefix_lengths = torch.searchsorted(
