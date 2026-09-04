@@ -105,7 +105,14 @@ def main(args):
             train_loader.dataset.negative_sampling()
 
         logger.log("Model's personal time...")
-        model.do_something_in_each_epoch(epoch)
+        model_diagnostics = model.do_something_in_each_epoch(epoch)
+        if isinstance(model_diagnostics, dict) and model_diagnostics:
+            formatted_diagnostics = ", ".join(
+                f"{key}={value:.6f}" if isinstance(value, float)
+                else f"{key}={value}"
+                for key, value in sorted(model_diagnostics.items())
+            )
+            logger.log(f"Model diagnostics: {formatted_diagnostics}")
 
         epoch_loss, epoch_base_loss, epoch_kd_loss = [], [], []
         logger.log('Training...')
