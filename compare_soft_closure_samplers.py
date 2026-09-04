@@ -49,11 +49,19 @@ def build_sampler_probabilities(student_scores, teacher_scores, teacher_topk,
                                 student_topm, q2_active, base_rho,
                                 catalog_cache, count_temperature=10.,
                                 score_temperature=1., mix_alpha=.9):
-    """Build original, Q2-count, mass and marginal-mass proposals."""
+    """Build proposals under both full and teacher-excluded support.
+
+    The full-support variants are the fair comparison with the repository's
+    current sampler: RCE-KD samples from all student top-M positions, including
+    positions occupied by teacher top-K items, and de-duplicates only while
+    constructing the L2 set.  Teacher-excluded variants are a separate support
+    ablation and must only be compared with their matching original baseline.
+    """
     scores_m = student_scores.gather(1, student_topm)
     scores_i = student_scores.gather(1, teacher_topk)
     teacher_i = teacher_scores.gather(1, teacher_topk)
-    eligible = ~rowwise_isin(student_topm, teacher_topk)
+    full_support = torch.ones_like(student_topm, dtype=torch.bool)
+    no_teacher_support = ~rowwise_isin(student_topm, teacher_topk)
 
     # Exact current-code proposal: only teacher items found in top-M increment
     # a position, followed by the reverse cumulative count and exp(z / T).
@@ -97,13 +105,39 @@ def build_sampler_probabilities(student_scores, teacher_scores, teacher_topk,
         block * marginal_coefficient.unsqueeze(1)
     ).sum(dim=2)
 
-    return {
+    full = {
         "original_code_count": original,
-        "q2_count": normalize_with_uniform_mixture(q2_count_raw, eligible, mix_alpha),
-        "teacher_student_mass": normalize_with_uniform_mixture(mass_raw, eligible, mix_alpha),
-        "marginal_mass": normalize_with_uniform_mixture(marginal_raw, eligible, mix_alpha),
-        "uniform": normalize_with_uniform_mixture(torch.zeros_like(scores_m), eligible, 0.),
+        "q2_count": normalize_with_uniform_mixture(
+            q2_count_raw, full_support, mix_alpha,
+        ),
+        "teacher_student_mass": normalize_with_uniform_mixture(
+            mass_raw, full_support, mix_alpha,
+        ),
+        "marginal_mass": normalize_with_uniform_mixture(
+            marginal_raw, full_support, mix_alpha,
+        ),
+        "uniform": normalize_with_uniform_mixture(
+            torch.zeros_like(scores_m), full_support, 0.,
+        ),
     }
+    no_teacher = {
+        "original_code_count_no_teacher": normalize_with_uniform_mixture(
+            original, no_teacher_support, 1.,
+        ),
+        "q2_count_no_teacher": normalize_with_uniform_mixture(
+            q2_count_raw, no_teacher_support, mix_alpha,
+        ),
+        "teacher_student_mass_no_teacher": normalize_with_uniform_mixture(
+            mass_raw, no_teacher_support, mix_alpha,
+        ),
+        "marginal_mass_no_teacher": normalize_with_uniform_mixture(
+            marginal_raw, no_teacher_support, mix_alpha,
+        ),
+        "uniform_no_teacher": normalize_with_uniform_mixture(
+            torch.zeros_like(scores_m), no_teacher_support, 0.,
+        ),
+    }
+    return {**full, **no_teacher}
 
 
 def active_l2_set(sampled, teacher_topk, q2_active):
@@ -219,10 +253,19 @@ def main():
         "teacher top-K item outside student top-K"
     )
 
-    sampler_names = [
+    full_support_names = [
         "original_code_count", "q2_count", "teacher_student_mass",
         "marginal_mass", "uniform",
     ]
+    no_teacher_names = [f"{name}_no_teacher" for name in full_support_names]
+    sampler_names = full_support_names + no_teacher_names
+    comparison_baseline = {
+        name: (
+            "original_code_count_no_teacher"
+            if name.endswith("_no_teacher") else "original_code_count"
+        )
+        for name in sampler_names
+    }
     reductions = {name: [] for name in sampler_names}
     reduction_ratios = {name: [] for name in sampler_names}
     after_penalties = {name: [] for name in sampler_names}
@@ -312,15 +355,17 @@ def main():
             "trial_mean_reduction_summary": summarize_tensor(per_trial),
         }
 
-    original_reduction = torch.cat(reductions["original_code_count"]).double()
     for name in sampler_names:
         candidate = torch.cat(reductions[name]).double()
-        paired_gain = candidate - original_reduction
-        samplers[name]["paired_gain_over_original"] = summarize_tensor(paired_gain)
-        samplers[name]["paired_win_fraction_over_original"] = (
+        baseline_name = comparison_baseline[name]
+        baseline = torch.cat(reductions[baseline_name]).double()
+        paired_gain = candidate - baseline
+        samplers[name]["comparison_baseline"] = baseline_name
+        samplers[name]["paired_gain_over_baseline"] = summarize_tensor(paired_gain)
+        samplers[name]["paired_win_fraction_over_baseline"] = (
             paired_gain > 0.
         ).double().mean().item()
-        samplers[name]["paired_tie_fraction_with_original"] = (
+        samplers[name]["paired_tie_fraction_with_baseline"] = (
             paired_gain == 0.
         ).double().mean().item()
 
@@ -346,8 +391,9 @@ def main():
         "samplers": samplers,
         "guardrails": [
             "This is a checkpoint-level sampler test, not a training-performance result.",
-            "Original-code sampling intentionally retains its current support; proposed samplers exclude teacher top-K duplicates.",
-            "Mass samplers use a uniform mixture so every eligible top-M candidate has nonzero probability.",
+            "Full-support variants all use the repository's original student top-M support, including teacher top-K items.",
+            "Teacher-excluded variants form a separate support ablation and are compared only with original_code_count_no_teacher.",
+            "Mass samplers use a uniform mixture so every candidate in their declared support has nonzero probability.",
             "The marginal score is a first-order removal approximation, not the exact discrete set-addition gain.",
         ],
     }
@@ -364,11 +410,12 @@ def main():
     for name in sampler_names:
         result = samplers[name]
         mean = result["absolute_penalty_reduction"]["mean"]
-        gain = result["paired_gain_over_original"]["mean"]
-        win = result["paired_win_fraction_over_original"]
+        gain = result["paired_gain_over_baseline"]["mean"]
+        win = result["paired_win_fraction_over_baseline"]
+        baseline = result["comparison_baseline"]
         print(
             f"  {name:24s} reduction={mean:.6f} "
-            f"gain_vs_original={gain:+.6f} paired_win={win:.3f}"
+            f"gain_vs_{baseline}={gain:+.6f} paired_win={win:.3f}"
         )
     print(f"  report saved to {output}")
 
