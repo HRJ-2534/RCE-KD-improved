@@ -1,0 +1,33 @@
+[teacher] checkpoints/citeulike/bpr/scratch-400/BEST_EPOCH.pt
+[student] checkpoints/citeulike/bpr/arcekd-20_anchor_marginal_es20/BEST_EPOCH.pt
+[users] 5216/5219 require blockers; mean budget=14.0842
+[fit] independent paired draws for global shrinkage coefficient
+  users 0:32/5219
+  users 800:832/5219
+  users 1600:1632/5219
+  users 2400:2432/5219
+  users 3200:3232/5219
+  users 4000:4032/5219
+  users 4800:4832/5219
+  users 5216:5219/5219
+[fit] lambda_user_normalized=0.101106; lambda_raw=0.159844
+[evaluate] fresh held-out paired draws
+  users 0:32/5219
+  users 800:832/5219
+  users 1600:1632/5219
+  users 2400:2432/5219
+  users 3200:3232/5219
+  users 4000:4032/5219
+  users 4800:4832/5219
+  users 5216:5219/5219
+
+[summary: held-out gradient shrinkage evaluation]
+  fixed_0                   lambda=0.000000 mean-grad-cos=0.611822 rel-bias=0.883209 variance/ref2=0.068829 mse/ref2=0.888056
+  fixed_0.1                 lambda=0.100000 mean-grad-cos=0.681491 rel-bias=0.796502 variance/ref2=0.167800 mse/ref2=0.833929
+  fixed_0.25                lambda=0.250000 mean-grad-cos=0.775443 rel-bias=0.667799 variance/ref2=0.483474 mse/ref2=0.951653
+  fixed_0.5                 lambda=0.500000 mean-grad-cos=0.894151 rel-bias=0.459814 variance/ref2=1.455510 mse/ref2=1.678297
+  fixed_0.75                lambda=0.750000 mean-grad-cos=0.959724 rel-bias=0.273074 variance/ref2=2.984937 mse/ref2=3.067990
+  fixed_1                   lambda=1.000000 mean-grad-cos=0.976008 rel-bias=0.183398 variance/ref2=5.071756 mse/ref2=5.120731
+  fitted_user_normalized    lambda=0.101106 mean-grad-cos=0.682236 rel-bias=0.795546 variance/ref2=0.169394 mse/ref2=0.833924
+  fitted_raw                lambda=0.159844 mean-grad-cos=0.720781 rel-bias=0.744926 variance/ref2=0.269683 mse/ref2=0.852278
+  report saved to logs/importance_shrinkage_citeulike_bpr-bpr_arcekd_d20_k50_l50_m200_seed0.json
