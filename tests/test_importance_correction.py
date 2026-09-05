@@ -6,11 +6,33 @@ from importance_correction import (
     embed_sample_gradient,
     estimate_inclusion_probabilities,
     masked_softmax,
+    optimal_shrinkage_weight,
     sampled_ce_logit_gradient,
 )
 
 
 class ImportanceCorrectionTests(unittest.TestCase):
+    def test_optimal_shrinkage_recovers_known_interior_solution(self):
+        reference = torch.tensor([[1., 0.], [0., 2.]])
+        direction = torch.tensor([[2., 0.], [0., 4.]])
+        expected_lambda = .25
+        uncorrected = reference - expected_lambda * direction
+        corrected = uncorrected + direction
+        actual = optimal_shrinkage_weight(
+            uncorrected, corrected, reference, user_normalized=True,
+        )
+        torch.testing.assert_close(actual, torch.tensor(expected_lambda))
+
+    def test_optimal_shrinkage_clips_to_closed_unit_interval(self):
+        reference = torch.tensor([[0., 0.]])
+        for uncorrected, corrected, expected in (
+                (torch.tensor([[1., 0.]]), torch.tensor([[2., 0.]]), 0.),
+                (torch.tensor([[2., 0.]]), torch.tensor([[1., 0.]]), 1.)):
+            actual = optimal_shrinkage_weight(
+                uncorrected, corrected, reference, user_normalized=False,
+            )
+            torch.testing.assert_close(actual, torch.tensor(expected))
+
     def test_uncorrected_gradient_is_student_minus_teacher_probability(self):
         student = torch.tensor([[2., 1., -3.]])
         teacher = torch.tensor([[1., 2., 7.]])

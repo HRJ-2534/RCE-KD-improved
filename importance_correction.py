@@ -3,6 +3,39 @@
 import torch
 
 
+def optimal_shrinkage_weight(uncorrected, corrected, reference,
+                             user_normalized=True):
+    """Return the MSE-optimal scalar mixing two paired estimators.
+
+    The mixed estimator is ``g0 + lambda * (g1 - g0)``.  Inputs may contain
+    any number of leading draw dimensions, but the final dimension must be
+    the gradient coordinate.  With ``user_normalized=True``, every row is
+    divided by its reference-gradient squared norm before aggregation so
+    users with large gradients do not determine the global coefficient.
+    """
+    if not (
+            uncorrected.shape == corrected.shape == reference.shape
+            and uncorrected.ndim >= 2):
+        raise ValueError(
+            "uncorrected, corrected, and reference must have equal rank-2+ "
+            "shapes"
+        )
+    direction = corrected - uncorrected
+    error = uncorrected - reference
+    numerator = (error * direction).sum(dim=-1)
+    denominator = direction.square().sum(dim=-1)
+    if user_normalized:
+        reference_norm_square = reference.square().sum(dim=-1).clamp_min(
+            torch.finfo(reference.dtype).tiny
+        )
+        numerator = numerator / reference_norm_square
+        denominator = denominator / reference_norm_square
+    denominator_sum = denominator.sum()
+    if denominator_sum <= 0.:
+        return torch.zeros((), device=reference.device, dtype=reference.dtype)
+    return (-numerator.sum() / denominator_sum).clamp(0., 1.)
+
+
 def masked_softmax(logits, active):
     if logits.shape != active.shape:
         raise ValueError("logits and active must have equal shape")
