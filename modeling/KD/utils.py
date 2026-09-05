@@ -3,7 +3,6 @@ import pickle
 import mlflow
 import numpy as np
 import scipy.linalg
-from sklearn.decomposition import PCA
 
 import torch
 import torch.nn as nn
@@ -38,6 +37,10 @@ def self_loop_graph(N):
 
 
 def pca(X:torch.tensor, n_components:int) -> torch.tensor:
+    # PCA is only used by a small subset of diagnostic KD methods.  Import it
+    # on demand so ordinary recommendation training does not require sklearn
+    # merely to import the KD package.
+    from sklearn.decomposition import PCA
     X = X.detach().cpu().numpy()
     pca = PCA(n_components=n_components)
     reduced_X = torch.from_numpy(pca.fit_transform(X)).cuda()

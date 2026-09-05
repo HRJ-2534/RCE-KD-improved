@@ -1,7 +1,6 @@
 from copy import deepcopy
 import time
 import numpy as np
-from sklearn.metrics import log_loss, roc_auc_score
 
 import torch
 import torch.utils.data as data
@@ -10,7 +9,25 @@ from utils import to_np
 from utils.metric import Precision, Recall, NDCG, get_labels
 
 
-METRIC2FUNC = {'Recall': Recall, 'NDCG': NDCG, 'Precision': Precision, 'AUC': roc_auc_score, 'LogLoss': log_loss}
+def _roc_auc_score(*args, **kwargs):
+    """Import the optional CTR dependency only when CTR evaluation is used."""
+    from sklearn.metrics import roc_auc_score
+    return roc_auc_score(*args, **kwargs)
+
+
+def _log_loss(*args, **kwargs):
+    """Import the optional CTR dependency only when CTR evaluation is used."""
+    from sklearn.metrics import log_loss
+    return log_loss(*args, **kwargs)
+
+
+METRIC2FUNC = {
+    'Recall': Recall,
+    'NDCG': NDCG,
+    'Precision': Precision,
+    'AUC': _roc_auc_score,
+    'LogLoss': _log_loss,
+}
 
 class Evaluator:
     def __init__(self, args):
