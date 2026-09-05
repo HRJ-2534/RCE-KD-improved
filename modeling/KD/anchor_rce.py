@@ -1,8 +1,9 @@
 """Anchor-preserving RCE-KD training variants.
 
-The KD loss itself is inherited unchanged from :class:`RCEKD`.  This module
-only changes how the fixed-size ``interesting_items`` set is constructed at
-the start of each epoch.
+The default ``arce_logq_lambda=0`` changes only construction of the fixed-size
+``interesting_items`` set.  A positive coefficient additionally blends the
+sampled L2 CE with its bilateral log-Q correction while leaving L1 and the
+original overlap-based mixture unchanged.
 """
 
 import torch
@@ -221,6 +222,90 @@ def sample_anchor_preserving(student_topm, anchor_positions, anchor_active,
     return student_topm.gather(1, selected_positions)
 
 
+def sample_anchor_preserving_with_inclusion(
+        student_topm, anchor_positions, anchor_active,
+        blocker_probabilities, length):
+    """Select the ARCE set and retain its bilateral Bq correction factors.
+
+    Teacher anchors are deterministic and therefore have inclusion factor
+    one.  If a user needs ``B`` blockers, a sampled blocker at position ``j``
+    receives the same with-replacement approximation used by the validated
+    gradient diagnostic: ``min(1, B * q_j)``.  Selection remains weighted
+    without replacement and consumes exactly the same single multinomial RNG
+    call as :func:`sample_anchor_preserving`.
+    """
+    blocker_positions = torch.multinomial(
+        blocker_probabilities, length, replacement=False,
+    )
+    combined_positions = torch.cat([anchor_positions, blocker_positions], dim=1)
+    combined_active = torch.cat([
+        anchor_active,
+        torch.ones_like(blocker_positions, dtype=torch.bool),
+    ], dim=1)
+    order = torch.arange(
+        combined_positions.shape[1], device=combined_positions.device,
+    ).unsqueeze(0)
+    priority = torch.where(
+        combined_active,
+        combined_positions.new_tensor(combined_positions.shape[1]) - order,
+        combined_positions.new_tensor(-1),
+    )
+    selected_columns = torch.topk(priority, length, dim=1).indices
+    selected_positions = combined_positions.gather(1, selected_columns)
+
+    blocker_budget = (
+        length - anchor_active.sum(dim=1)
+    ).to(blocker_probabilities.dtype).unsqueeze(1)
+    blocker_inclusion = (
+        blocker_budget
+        * blocker_probabilities.gather(1, blocker_positions)
+    ).clamp(max=1.)
+    combined_inclusion = torch.cat([
+        torch.ones_like(anchor_positions, dtype=blocker_probabilities.dtype),
+        blocker_inclusion,
+    ], dim=1)
+    selected_inclusion = combined_inclusion.gather(1, selected_columns)
+    if (selected_inclusion <= 0.).any():
+        raise ValueError("selected ARCE items require positive inclusion factors")
+    return (
+        student_topm.gather(1, selected_positions), selected_inclusion,
+    )
+
+
+def bilateral_logq_cross_entropy(student_logits, teacher_logits, active,
+                                  inclusion):
+    """Per-row CE after applying the same log-inclusion to both models."""
+    if not (
+            student_logits.shape == teacher_logits.shape == active.shape
+            == inclusion.shape):
+        raise ValueError("all bilateral log-Q tensors must have equal shape")
+    active = active.bool()
+    if (~active.any(dim=1)).any():
+        raise ValueError("every row needs at least one active item")
+    if ((inclusion <= 0.) & active).any():
+        raise ValueError("active items require positive inclusion factors")
+    log_inclusion = torch.where(
+        active,
+        inclusion.clamp_min(
+            torch.finfo(student_logits.dtype).tiny
+        ).log(),
+        torch.zeros_like(inclusion),
+    )
+    negative_infinity = torch.full_like(student_logits, -float("inf"))
+    corrected_student = torch.where(
+        active, student_logits - log_inclusion, negative_infinity,
+    )
+    corrected_teacher = torch.where(
+        active, teacher_logits - log_inclusion, negative_infinity,
+    )
+    teacher_probability = torch.softmax(corrected_teacher, dim=1)
+    student_log_probability = torch.log_softmax(corrected_student, dim=1)
+    student_log_probability = torch.where(
+        active, student_log_probability, torch.zeros_like(student_log_probability),
+    )
+    return -(teacher_probability * student_log_probability).sum(dim=1)
+
+
 def select_anchor_preserving_topl(student_topm, anchor_positions,
                                   anchor_active, blocker_scores,
                                   blocker_eligible, length):
@@ -317,7 +402,7 @@ def redistribute_gamma_by_difficulty(difficulty, reference_gamma):
 
 
 class ARCEKD(RCEKD):
-    """RCE-KD with Q1 anchors and alternative blocker-selection rules."""
+    """RCE-KD with Q1 anchors, blocker sampling, and optional log-Q shrinkage."""
 
     def __init__(self, args, teacher, student):
         super().__init__(args, teacher, student)
@@ -348,6 +433,23 @@ class ARCEKD(RCEKD):
             raise ValueError(
                 "arce_gamma_mode must be sample_overlap, teacher_mass, or "
                 "teacher_mass_calibrated, or closure_quantile"
+            )
+        self.arce_logq_lambda = float(
+            getattr(args, "arce_logq_lambda", 0.)
+        )
+        if not 0. <= self.arce_logq_lambda <= 1.:
+            raise ValueError("arce_logq_lambda must be between zero and one")
+        if self.arce_logq_lambda > 0. and self.arce_sampler != "marginal":
+            raise ValueError(
+                "bilateral log-Q shrinkage is validated only for the marginal "
+                "ARCE sampler"
+            )
+        if (
+                self.arce_logq_lambda > 0.
+                and self.arce_gamma_mode != "sample_overlap"):
+            raise ValueError(
+                "bilateral log-Q shrinkage is validated only with the "
+                "sample-overlap gamma"
             )
         with torch.no_grad():
             users = torch.arange(self.num_users, device=self.T_topk_dict.device)
@@ -403,8 +505,15 @@ class ARCEKD(RCEKD):
                     student_topm, anchor_positions, anchor_active,
                     blocker_probabilities, blocker_eligible, self.L,
                 )
+                self.arce_inclusion = torch.ones(
+                    self.interesting_items.shape,
+                    device=self.interesting_items.device,
+                    dtype=student_score_mat.dtype,
+                )
             else:
-                self.interesting_items = sample_anchor_preserving(
+                (
+                    self.interesting_items, self.arce_inclusion,
+                ) = sample_anchor_preserving_with_inclusion(
                     student_topm, anchor_positions, anchor_active,
                     blocker_probabilities, self.L,
                 )
@@ -440,10 +549,21 @@ class ARCEKD(RCEKD):
                 )
             self.arce_gamma = gamma
             anchor_count = anchor_active.sum(dim=1).float()
+            selected_blocker = ~rowwise_isin(
+                self.interesting_items, self.T_topk_dict,
+            )
+            selected_blocker_count = selected_blocker.sum().clamp_min(1)
+            selected_blocker_inclusion_mean = (
+                self.arce_inclusion * selected_blocker
+            ).sum() / selected_blocker_count
             entropy = probability_entropy(blocker_probabilities)
             return {
                 "arce_sampler": self.arce_sampler,
                 "arce_sampling_power": self.arce_sampling_power,
+                "arce_logq_lambda": self.arce_logq_lambda,
+                "arce_blocker_inclusion_mean": (
+                    selected_blocker_inclusion_mean.item()
+                ),
                 "arce_gamma_mode": self.arce_gamma_mode,
                 "arce_anchor_count_mean": anchor_count.mean().item(),
                 "arce_blocker_budget_mean": (self.L - anchor_count).mean().item(),
@@ -469,7 +589,9 @@ class ARCEKD(RCEKD):
             }
 
     def get_loss(self, *params):
-        if self.arce_gamma_mode == "sample_overlap":
+        if (
+                self.arce_gamma_mode == "sample_overlap"
+                and self.arce_logq_lambda == 0.):
             return super().get_loss(*params)
 
         # This is RCEKD.get_loss verbatim except that the L2 mixture weight is
@@ -526,5 +648,30 @@ class ARCEKD(RCEKD):
             prob_T_all * (logit_S_all - torch.log(Z_S))
         ).sum(-1)
 
-        weight = self.arce_gamma[batch_users]
+        if self.arce_logq_lambda > 0.:
+            active_itemT = ~(mask | mask2)
+            active_all = torch.cat([
+                torch.ones_like(item_interesting, dtype=torch.bool),
+                active_itemT,
+            ], dim=1)
+            inclusion_all = torch.cat([
+                self.arce_inclusion[batch_users],
+                torch.ones_like(logit_T_itemT),
+            ], dim=1)
+            teacher_logits_all = torch.cat([
+                logit_T_interesting, logit_T_itemT,
+            ], dim=1)
+            corrected_loss_itemT = bilateral_logq_cross_entropy(
+                logit_S_all, teacher_logits_all, active_all, inclusion_all,
+            )
+            loss_itemT = (
+                (1. - self.arce_logq_lambda) * loss_itemT
+                + self.arce_logq_lambda * corrected_loss_itemT
+            )
+
+        if self.arce_gamma_mode == "sample_overlap":
+            overlap = mask.float().mean(-1)
+            weight = torch.exp(-self.beta * overlap)
+        else:
+            weight = self.arce_gamma[batch_users]
         return ((1. - weight) * loss_itemS + weight * loss_itemT).sum()

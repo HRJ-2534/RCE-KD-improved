@@ -8,12 +8,14 @@ from torch import nn
 
 from modeling.KD.anchor_rce import (
     ARCEKD,
+    bilateral_logq_cross_entropy,
     calibrate_exponential_gamma,
     prepare_teacher_anchors,
     power_sharpen_probabilities,
     redistribute_gamma_by_difficulty,
     rowwise_isin,
     sample_anchor_preserving,
+    sample_anchor_preserving_with_inclusion,
     select_anchor_preserving_topl,
     topm_closure_difficulty,
     topm_closure_statistics,
@@ -53,6 +55,7 @@ def make_model(sampler, gamma_mode="sample_overlap"):
     model.arce_sampler, model.arce_mix_alpha = sampler, .9
     model.arce_sampling_power = 1.
     model.arce_gamma_mode = gamma_mode
+    model.arce_logq_lambda = 0.
     with contextlib.redirect_stdout(io.StringIO()):
         model.T_topk_dict = model.get_topk_dict(model.teacher, model.K)
     users = torch.arange(model.num_users)
@@ -64,6 +67,71 @@ def make_model(sampler, gamma_mode="sample_overlap"):
 
 
 class AnchorRCEKDTests(unittest.TestCase):
+    def test_bilateral_logq_loss_has_diagnostic_gradient(self):
+        from importance_correction import sampled_ce_logit_gradient
+
+        student = torch.tensor(
+            [[2., 1., -3., 4.]], requires_grad=True,
+        )
+        teacher = torch.tensor([[1., 3., 7., 2.]])
+        active = torch.tensor([[True, True, False, True]])
+        inclusion = torch.tensor([[1., .2, 1., .7]])
+        loss = bilateral_logq_cross_entropy(
+            student, teacher, active, inclusion,
+        ).sum()
+        actual = torch.autograd.grad(loss, student)[0]
+        expected = sampled_ce_logit_gradient(
+            student.detach(), teacher, active, inclusion,
+            correct_teacher=True,
+        )
+        torch.testing.assert_close(actual, expected)
+
+    def test_inclusion_sampler_preserves_selection_and_matches_bq(self):
+        student_topm = torch.tensor([[0, 1, 2, 3, 4]])
+        anchor_positions = torch.tensor([[1, 0]])
+        anchor_active = torch.tensor([[True, False]])
+        probabilities = torch.tensor([[.4, 0., .3, .3, 0.]])
+        torch.manual_seed(79)
+        expected = sample_anchor_preserving(
+            student_topm, anchor_positions, anchor_active,
+            probabilities, length=2,
+        )
+        torch.manual_seed(79)
+        selected, inclusion = sample_anchor_preserving_with_inclusion(
+            student_topm, anchor_positions, anchor_active,
+            probabilities, length=2,
+        )
+        torch.testing.assert_close(selected, expected, rtol=0., atol=0.)
+        for item, factor in zip(selected[0].tolist(), inclusion[0].tolist()):
+            if item == 1:
+                self.assertEqual(factor, 1.)
+            else:
+                position = (student_topm[0] == item).nonzero().item()
+                self.assertAlmostEqual(factor, probabilities[0, position].item())
+
+    def test_shrunk_logq_loss_is_finite_and_changes_the_kd_objective(self):
+        baseline = make_model("marginal")
+        shrunk = make_model("marginal")
+        shrunk.arce_logq_lambda = .1
+        torch.manual_seed(83)
+        baseline.do_something_in_each_epoch(0)
+        torch.manual_seed(83)
+        diagnostics = shrunk.do_something_in_each_epoch(0)
+        torch.testing.assert_close(
+            baseline.interesting_items, shrunk.interesting_items,
+            rtol=0., atol=0.,
+        )
+        users = torch.tensor([0, 1])
+        baseline_loss = baseline.get_loss(users)
+        shrunk_loss = shrunk.get_loss(users)
+        self.assertTrue(torch.isfinite(shrunk_loss))
+        self.assertNotEqual(baseline_loss.item(), shrunk_loss.item())
+        shrunk_loss.backward()
+        self.assertTrue(torch.isfinite(
+            shrunk.student.score_parameters.grad
+        ).all())
+        self.assertEqual(diagnostics["arce_logq_lambda"], .1)
+
     def test_sampling_power_one_is_exact_identity_and_larger_power_sharpens(self):
         probabilities = torch.tensor([
             [.5, .3, .2, 0.], [.1, .2, .7, 0.],

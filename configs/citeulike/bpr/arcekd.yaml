@@ -15,3 +15,4 @@ bpr:
   arce_mix_alpha: 0.9
   arce_sampling_power: 1.0
   arce_gamma_mode: sample_overlap
+  arce_logq_lambda: 0.0
