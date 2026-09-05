@@ -114,4 +114,12 @@ if __name__ == '__main__':
         f.write(str(table))
 
     print(f'# Users: {num_users}, # Items: {num_items}, # Interactions: {num_train_inter}')
-    yaml.dump({'num_users': num_users, 'num_items': num_items, 'num_inters': trainsize + validsize + testsize, 'start_idx': 0}, open("config.yaml", "w"))
+    # Cast NumPy scalars before serialization.  Dumping np.int64 values makes
+    # PyYAML emit Python/NumPy object tags (including a serialized dtype), which
+    # can trigger a recursive dtype repr failure under newer NumPy versions.
+    yaml.dump({
+        'num_users': int(num_users),
+        'num_items': int(num_items),
+        'num_inters': int(trainsize + validsize + testsize),
+        'start_idx': 0,
+    }, open("config.yaml", "w"))
