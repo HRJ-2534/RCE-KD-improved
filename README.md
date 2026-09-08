@@ -1,109 +1,173 @@
-# Rejuvenating Cross-Entropy Loss in Knowledge Distillation for Recommender Systems
+# 基于锚点保持与边际闭包采样的 RCE-KD 改进
 
-This repo provides the Pytorch codes for RCE-KD.
+## 摘要
 
-Our press release is available at: [URL here](https://mp.weixin.qq.com/s?__biz=MzA4NTUxNTE4Ng==&mid=2247528245&idx=1&sn=52b73e73be15f9e208b4c69070b4782f&chksm=9e6a7b56a2c8cccbd8e4edccd116407b438a12f6d84a7807bb18ab9b7eed684107c2532badfe&mpshare=1&scene=1&srcid=0508shTWUuhKlcbAjkkF2uuF&sharer_shareinfo=c0781067e418042c11e73bf3af11f300&sharer_shareinfo_first=c0781067e418042c11e73bf3af11f300#rd)
+本文选取 *Rejuvenating Cross-Entropy Loss in Knowledge Distillation for Recommender Systems*（RCE-KD）作为 backbone。RCE-KD 从 NDCG 下界出发，指出在物品子集上进行交叉熵蒸馏时，蒸馏集合需要近似满足学生排序下的闭包条件。然而，其闭包构造采用基于“阻挡次数”的启发式采样：它没有区分教师目标的重要程度，也不能衡量候选物品对闭包缺失的实际贡献，并且可能在采样过程中丢失师生已经一致的头部知识。
+
+针对这一问题，本文提出 **Anchor-aware Marginal RCE-KD（AM-RCE-KD，代码中记为 ARCE-KD）**：首先显式保留师生 Top-K 的公共物品作为教师锚点，再将剩余预算用于采样能够最大程度减少软闭包缺失的阻挡物品。该方法不引入额外模型和监督信号，完整保留 RCE-KD 的双损失结构及自适应融合机制。在 CiteULike 的 BPR→BPR 蒸馏预研中，AM-RCE-KD 相对 RCE-KD 在测试集 Recall@10、Recall@20、NDCG@10 和 NDCG@20 上分别提高 **4.55%、1.60%、3.01% 和 1.70%**，初步证明了方案的可行性。
+
+## 1. Motivation：现有方法的不足
+
+### 1.1 RCE-KD 的基本思想
+
+对用户 $u$，记教师与学生的 Top-K 集合分别为 $Q_u^T$ 和 $Q_u^S$。RCE-KD 将教师知识分为：
+
+$$
+Q_{u,1}=Q_u^T\cap Q_u^S,\qquad
+Q_{u,2}=Q_u^T\setminus Q_u^S.
+$$
+
+其中，$Q_{u,1}$ 表示学生已经掌握的教师头部知识；对于尚未掌握的 $Q_{u,2}$，RCE-KD 从学生 Top-M 中采样排在这些教师物品之前的“阻挡物品”，构造近似闭合集合并计算第二项交叉熵损失。最终通过用户级权重 $\gamma_u$ 融合两个损失。
+
+### 1.2 计数采样与优化目标不一致
+
+原方法为每个候选物品统计它排在多少个 $Q_{u,2}$ 物品之前，再根据该计数进行采样。这一设计存在三个问题：
+
+1. **教师重要性缺失**：阻挡教师第 1 名与阻挡教师第 K 名被同等计数，但二者承载的教师概率质量通常不同；
+2. **学生越界强度缺失**：刚刚超过教师目标和大幅超过教师目标都会贡献一次计数，没有反映其学生分数质量；
+3. **采样预算利用不足**：师生已经一致的 $Q_{u,1}$ 物品没有被确定性保留，有限预算可能被重复用于低价值候选。
+
+因此，较高的阻挡次数不一定意味着该物品最能改善闭包质量。核心研究问题由此确定为：
+
+> 如何在固定采样预算下，同时保留可靠的头部知识，并优先选择真正影响闭包误差的阻挡物品？
+
+### 1.3 软闭包缺失提供了更直接的度量
+
+令
+
+$$
+H_{ui}=\{j:s^S_{uj}\ge s^S_{ui}\}
+$$
+
+表示学生排在目标物品 $i$ 之前的物品集合。对于蒸馏集合 $J_u$，定义集合外的学生分数质量：
+
+$$
+\rho_{ui}(J_u)=
+\frac{\sum_{j\in H_{ui}\setminus J_u}\exp(s^S_{uj})}
+{\sum_{j\in J_u}\exp(s^S_{uj})}.
+$$
+
+当集合完全闭包时，$\rho_{ui}=0$；当高分阻挡物品遗漏在集合外时，$\rho_{ui}$ 增大。由 RCE-KD 的证明过程可得到带软闭包误差项的下界，其中额外误差与
+
+$$
+\Phi_u(J_u)=\sum_{i\in Q_{u,2}}p^T_{ui}\log(1+\rho_{ui}(J_u))
+$$
+
+相关。相比阻挡次数，$\Phi_u$ 同时考虑了教师目标的重要性和遗漏的学生分数质量，为采样提供了更贴近理论目标的依据。
+
+## 2. Method：Anchor-aware Marginal RCE-KD
+
+### 2.1 教师锚点保持
+
+首先按照教师置信度，从师生 Top-K 交集中确定性保留至多 $L$ 个物品：
+
+$$
+A_u=\operatorname{Top}_{\min(L,|Q_u^T\cap Q_u^S|)}^T
+(Q_u^T\cap Q_u^S)
+$$
+
+作为教师锚点。若固定蒸馏预算为 $L$，则用于新阻挡物品的用户级预算为
+
+$$
+B_u=L-|A_u|.
+$$
+
+这使预算分配具有明确含义：已经得到师生共同确认的头部知识不会因随机采样而丢失，其余预算集中用于修复尚未掌握的教师排序。
+
+### 2.2 基于软闭包边际收益的采样
+
+对于学生 Top-M 中不属于教师 Top-K 的候选物品 $j$，定义其闭包边际收益为
+
+$$
+v_{uj}=\Phi_u(J_u)-\Phi_u(J_u\cup\{j\}).
+$$
+
+实现中使用 Top-M 范围内的一阶形式计算 $v_{uj}$。该分数会同时增大于以下情况：
+
+- 学生给予候选物品 $j$ 较高分数；
+- $j$ 阻挡了更多尚未掌握的教师物品；
+- 被阻挡物品具有更大的教师概率质量；
+- 加入 $j$ 能消除更多当前闭包缺失质量。
+
+为避免确定性选择反复强化学生当前的错误排序，采样分布采用边际收益与均匀探索的混合：
+
+$$
+q(j\mid u)=
+\alpha\frac{v_{uj}}{\sum_{k\in C_u}v_{uk}}
++(1-\alpha)\frac{1}{|C_u|},
+$$
+
+其中 $C_u$ 为合法候选集合，本次预研取 $\alpha=0.9$；若全部边际收益均为零，则退化为在 $C_u$ 上均匀采样。随后按照 $q(j\mid u)$ 无放回采样 $B_u$ 个物品，与锚点合并为固定长度的蒸馏集合：
+
+$$
+J_u^{AM}=A_u\cup\operatorname{Sample}_{q}(C_u,B_u).
+$$
+
+### 2.3 保留 RCE-KD 的原始损失
+
+AM-RCE-KD 只改变第二部分蒸馏集合的构造，不修改教师目标分布、两个交叉熵损失及原有融合权重：
+
+$$
+\mathcal L=
+\mathcal L_{base}
++\lambda_{KD}\left[(1-\gamma_u)\mathcal L_1
++\gamma_u\mathcal L_2(J_u^{AM})\right].
+$$
+
+这样可以将收益明确归因于采样策略，并保留 RCE-KD 已有的理论结构和异构蒸馏鲁棒性。
+
+## 3. 创新点
+
+1. **从计数启发式转向目标一致的边际采样**：以软闭包误差的边际下降量衡量候选价值，同时利用教师重要性和学生越界质量；
+2. **提出锚点保持与剩余预算机制**：确定性保留师生一致的教师头部知识，并将不同用户的剩余预算用于修复未掌握排序；
+3. **识别闭包质量与推荐性能之间的非单调关系**：实验表明确定性最大化闭包收益反而可能损害推荐，说明随机探索是方法的必要组成部分；
+4. **低成本、可插拔**：不增加可学习参数、额外模型或标签，只替换 RCE-KD 每轮已有的候选采样模块，计算复杂度保持同阶。
+
+## 4. Result：预研实验
+
+### 4.1 实验设置
+
+预研采用 CiteULike 数据集，教师和学生均为 BPR，教师嵌入维度为 400，学生维度为 20。统一使用 $K=50$、$L=50$、$M=200$，以验证集 NDCG@20 选择 checkpoint，测试集仅用于最终报告。本节结果均为 seed 0。
+
+### 4.2 主结果
+
+| 方法 | Test Recall@10 | Test Recall@20 | Test NDCG@10 | Test NDCG@20 |
+|---|---:|---:|---:|---:|
+| 未蒸馏 Student | 0.02026 | 0.03090 | 0.01139 | 0.01433 |
+| RCE-KD | 0.02745 | 0.04247 | 0.01527 | 0.01936 |
+| **AM-RCE-KD** | **0.02870** | **0.04315** | **0.01573** | **0.01969** |
+| 相对 RCE-KD | **+4.55%** | **+1.60%** | **+3.01%** | **+1.70%** |
+
+AM-RCE-KD 在四项测试指标上均超过原始 RCE-KD，说明改进不仅提高了召回数量，也提高了前列结果的排序质量。最佳模型出现在第 152 轮，对应验证集 NDCG@20 为 0.05106；当前环境下平均训练时间约为 2.62 秒/轮。
+
+### 4.3 闭包诊断与消融
+
+零训练诊断显示：在保留锚点后，原始计数采样和边际采样都能消除约 97.8% 的可见闭包违反次数；但边际采样在 **99.72%** 的用户—重复试验对上优于仓库原始采样，并将残余精确软闭包误差从 0.11078 降至 0.07219，下降约 **34.8%**。这证明新采样确实更有效地使用了有限预算。
+
+| 变体 | Test R@10 | Test R@20 | Test N@10 | Test N@20 | 结论 |
+|---|---:|---:|---:|---:|---|
+| Anchor + Count | 0.02717 | 0.04258 | 0.01517 | 0.01941 | 仅保留锚点不足以产生完整收益 |
+| **Anchor + Marginal** | **0.02870** | **0.04315** | **0.01573** | **0.01969** | 当前最佳 |
+| Deterministic Top-L | 0.02796 | 0.04256 | 0.01562 | 0.01966 | 闭包更强，但推荐性能下降 |
+| Marginal，power=2 | 0.02609 | 0.04300 | 0.01492 | 0.01958 | 强化高概率候选无收益 |
+| Marginal，power=4 | 0.02748 | 0.04215 | 0.01516 | 0.01916 | 过度集中进一步退化 |
+
+确定性 Top-L 对软闭包误差的消除量达到 0.11129，明显高于随机 Marginal 的 0.06676，却没有得到更好的最终指标。这一结果说明：**闭包近似是手段而不是最终目标**。过度追逐学生当前排名最高的阻挡物品会产生自我强化，而适度随机性能够起到探索和正则化作用。
+
+我还检查了对非均匀采样 CE 进行重要性校正的可能性。双边 log-Q 校正可将平均梯度余弦从 0.612 提高到 0.976，但使方差扩大约 73 倍；使用独立样本拟合的收缩系数 $0.101$ 虽然将梯度 MSE 降低 6.10%，正式训练后 NDCG@20 仍由 AM-RCE-KD 的 0.01969 降至 0.01912。该结果进一步表明，逼近完整 CE 梯度并不等价于改善 Top-K 排序，最终方案应保留当前有益的采样偏置。
+
+## 5. 贡献
+
+本研究的预研贡献可以概括为：
+
+1. 指出 RCE-KD 的主要可改进点不是简单扩大闭包候选范围，而是其计数采样与软闭包误差之间的目标错位；
+2. 提出锚点保持的边际闭包采样方法，并在不改变 RCE-KD 主体损失的情况下取得四项测试指标全面提升；
+3. 通过 Count、Top-L、采样锐化和 log-Q 校正等消融，确认收益来自“可靠锚点 + 目标一致的随机边际采样”，而不是单纯追求更强闭包；
+4. 方法不需要额外模型、监督数据或可学习参数，改动集中于候选集合构造，具备直接迁移到其他推荐 backbone 的工程可行性。
 
 
+## 6. 结论
 
+RCE-KD 证明了闭合蒸馏集合对于局部排序学习的重要性，但其计数式采样没有充分利用教师概率质量和学生分数质量。本文提出的 AM-RCE-KD 显式保留师生一致的教师锚点，并根据软闭包误差的边际收益随机选择阻挡物品。在统一预研设置下，该方法相对 RCE-KD 实现了四项测试指标的全面提升。
 
-
-## 📝 Abstract
-
-This paper analyzes Cross-Entropy (CE) loss in knowledge distillation (KD) for recommender systems. KD for recommender systems targets at distilling rankings, especially among items most likely to be preferred, and can only be computed on a small subset of items. Considering these features, we reveal the connection between CE loss and NDCG in the field of KD. We prove that when performing KD on an item subset, minimizing CE loss maximizes the lower bound of NDCG, only if an assumption of closure is satisfied. It requires that the item subset consists of the student's top items. However, this contradicts our goal of distilling rankings of the teacher's top items. We empirically demonstrate the vast gap between these two kinds of top items. To bridge the gap between our goal and theoretical support, we propose **R**ejuvenated **C**ross-**E**ntropy for **K**nowledge **D**istillation (RCE-KD). It splits the top items given by the teacher into two subsets based on whether they are highly ranked by the student. For the subset that defies the condition, a sampling strategy is devised to use teacher-student collaboration to approximate our assumption of closure. We also combine the losses on the two subsets adaptively.
-
-## 📊 Experimental Results
-
-![Performance comparison of different KD methods.](./figs/intro_loss.png)
-
-![Recommendation performance.](./figs/exp_results_all.png)
-
-![Training curves of NDCG@10.](./figs/train_ndcg.png)
-
-![Ablation study.](./figs/abl_main.png)
-
-## ⚙️ Requirement
-
-1. Create the conda environment with `Python==3.9.21`.
-2. Install pytorch using the following code:
-
-   ```shell
-   pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu124
-   ```
-3. Install other packages using `requirements.py`:
-
-   ```bash
-   pip install -r requirements.py
-   ```
-
-## 🧩 Data
-
-Details about the datasets and download links are provided in the `README` files located within each dataset folder, such as, `./data/gowalla/README`.
-
-For all datasets, you must first download the files from the links provided in the README files, extract them, and place them in the corresponding dataset folder.
-
-Note that, for CiteULike dataset, preprocessing is required. Please follow the codes below.
-
-```bash
-cd data/citeulike
-python preprocess_citeulike.py
-cd ../..
-```
-
-For other datasets, no further preprocessing is required.
-
-## 🚀 Usage
-
-1. First, you need to train the teacher. For example,
-
-   ```shell
-   python -u main.py --dataset=citeulike --S_backbone=bpr --train_teacher --suffix teacher
-   ```
-
-   You can replace "citeulike" with "gowalla" and "yelp" to test on your interested dataset.
-
-   You can also set "`--S_backbone=lightgcn`" or "`--S_backbone=hstu`".
-2. Now, you can start knowledge distillation. For example,
-
-   ```shell
-   python -u main.py --dataset=citeulike --S_backbone=bpr --T_backbone=bpr --model=rcekd
-   ```
-
-   By configuring the "`--model`" option, you can test other KD methods, such as rrd.
-
-We provide some exemplar command lines in `run.sh`.
-
-## 🗒️ Notes
-
-In `configs/`, we have provided the configuration of hyperparameters for RCE-KD, together with hyperparameters for other compared methods.
-
-In `modeling/KD/baseline.py`, we provide the codes for all baseline methods.
-
-The code for RCE-KD is given in `modeling/KD/playground.py`.
-
-The codes for all backbones are provided in `modeling/backbone/`.
-
-## 📜 Citation
-
-```
-@article{zhu2025rejuvenating,
-  title={Rejuvenating Cross-Entropy Loss in Knowledge Distillation for Recommender Systems},
-  author={Zhu, Zhangchi and Zhang, Wei},
-  journal={arXiv preprint arXiv:2509.20989},
-  year={2025}
-}
-```
-
----
-
-## 🔧 Our Extension: SRCE-KD (work in progress)
-
-This fork adds **SRCE-KD** (an experimental extension of RCE-KD) with two modes (`--cfg srce_mode=...`):
-
-1. **`union`** (default): replaces the hard split + adaptive γ with a single CE on the union item set (student top-K ∪ teacher top-K ∪ closure samples ∪ uniform samples), with optional soft rank-based weights (`srce_alpha`) and reliability correction (`srce_eta`). *Pre-research finding: this mode helps slightly in homogeneous KD but collapses in heterogeneous KD — kept for ablation.*
-2. **`split`**: keeps RCE-KD's original two-loss structure and adaptive γ untouched, and merges `srce_Lu` uniform tail samples into the closure sample set of L2, covering teacher items ranked beyond the student's top-mxK (the blind region of RCE-KD's sampling, ~10-18% of teacher top items in our diagnostics). With `srce_Lu=0` this mode reduces exactly to RCE-KD.
-3. **Popularity tilt (`srce_kappa`, split mode)**: multiplies each item's mass in the teacher target by `(pop_i + 1)^(-kappa)`, tilting distillation toward long-tail teacher items. Motivation: our diagnostics show that distilled students are already slightly less popularity-biased than their teachers (lower ARP, higher long-tail Recall); `kappa > 0` amplifies this debiasing effect instead of merely inheriting the teacher's bias. `kappa = 0` recovers RCE-KD exactly, `kappa < 0` serves as the reversed ablation.
-
-Code: `modeling/KD/playground.py` (class `SRCEKD`, `--model=srcekd`). Configs: `configs/<dataset>/<S_backbone>/srcekd.yaml`.
-
-It also adds `diagnose.py`, a training-free diagnostic script that quantifies the motivations above (teacher reliability, blind fraction beyond top-mxK, popularity-bias inheritance) from existing checkpoints. Exemplar commands are at the bottom of `run.sh`.
+更重要的实验结论是：最强的闭包修复并不产生最好的推荐模型。有效方案需要在闭包目标与随机探索之间取得平衡；AM-RCE-KD 的贡献正是在理论引导的候选偏置和必要的随机正则化之间建立了这一平衡。
