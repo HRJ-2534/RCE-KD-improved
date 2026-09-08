@@ -12,10 +12,15 @@
 
 对用户 $u$，记教师与学生的 Top-K 集合分别为 $Q_u^T$ 和 $Q_u^S$。RCE-KD 将教师知识分为：
 
-$$
-Q_{u,1}=Q_u^T\cap Q_u^S,\qquad
-Q_{u,2}=Q_u^T\setminus Q_u^S.
-$$
+```math
+Q_{u,1}
+=
+Q_u^T \cap Q_u^S,
+\qquad
+Q_{u,2}
+=
+Q_u^T \setminus Q_u^S.
+```
 
 其中，$Q_{u,1}$ 表示学生已经掌握的教师头部知识；对于尚未掌握的 $Q_{u,2}$，RCE-KD 从学生 Top-M 中采样排在这些教师物品之前的“阻挡物品”，构造近似闭合集合并计算第二项交叉熵损失。最终通过用户级权重 $\gamma_u$ 融合两个损失。
 
@@ -37,28 +42,38 @@ $$
 
 令
 
-$$
-H_{ui}=\{j:s^S_{uj}\ge s^S_{ui}\}
-$$
+```math
+H_{ui}
+=
+\left\{
+j:
+s^S_{uj}\ge s^S_{ui}
+\right\}
+```
 
 表示学生排在目标物品 $i$ 之前的物品集合。对于蒸馏集合 $J_u$，定义集合外的学生分数质量：
 
-$$
-\rho_{ui}(J_u)=
+```math
+\rho_{ui}(J_u)
+=
 \frac{
 \sum_{j\in H_{ui}\setminus J_u}\exp(s^S_{uj})
 }{
 \sum_{j\in J_u}\exp(s^S_{uj})
 }.
-$$
+```
 
 当集合完全闭包时，$\rho_{ui}=0$；当高分阻挡物品遗漏在集合外时，$\rho_{ui}$ 增大。由 RCE-KD 的证明过程可得到带软闭包误差项的下界，其中额外误差与
 
-$$
-\Phi_u(J_u)=
+```math
+\Phi_u(J_u)
+=
 \sum_{i\in Q_{u,2}}
-p^T_{ui}\log(1+\rho_{ui}(J_u))
-$$
+p^T_{ui}
+\log\left(
+1+\rho_{ui}(J_u)
+\right)
+```
 
 相关。相比阻挡次数，$\Phi_u$ 同时考虑了教师目标的重要性和遗漏的学生分数质量，为采样提供了更贴近理论目标的依据。
 
@@ -68,17 +83,25 @@ $$
 
 首先按照教师置信度，从师生 Top-K 交集中确定性保留至多 $L$ 个物品：
 
-$$
-A_u=
-\mathrm{Top}_{\min(L,\lvert Q_u^T\cap Q_u^S\rvert)}^T
-(Q_u^T\cap Q_u^S)
-$$
+```math
+A_u
+=
+\mathrm{Top}_{\min\left(
+L,\,
+\lvert Q_u^T\cap Q_u^S\rvert
+\right)}^T
+\left(
+Q_u^T\cap Q_u^S
+\right)
+```
 
 作为教师锚点。若固定蒸馏预算为 $L$，则用于新阻挡物品的用户级预算为
 
-$$
-B_u=L-\lvert A_u\rvert.
-$$
+```math
+B_u
+=
+L-\lvert A_u\rvert.
+```
 
 这使预算分配具有明确含义：已经得到师生共同确认的头部知识不会因随机采样而丢失，其余预算集中用于修复尚未掌握的教师排序。
 
@@ -86,12 +109,15 @@ $$
 
 对于学生 Top-M 中不属于教师 Top-K 的候选物品 $j$，定义其闭包边际收益为
 
-$$
-v_{uj}=
+```math
+v_{uj}
+=
 \Phi_u(J_u)
 -
-\Phi_u(J_u\cup\{j\}).
-$$
+\Phi_u\left(
+J_u\cup\{j\}
+\right).
+```
 
 实现中使用 Top-M 范围内的一阶形式计算 $v_{uj}$。该分数会同时增大于以下情况：
 
@@ -102,31 +128,43 @@ $$
 
 为避免确定性选择反复强化学生当前的错误排序，采样分布采用边际收益与均匀探索的混合：
 
-$$
-q(j\mid u)=
+```math
+q(j\mid u)
+=
 \alpha
-\frac{v_{uj}}
-{\sum_{k\in C_u}v_{uk}}
+\frac{
+v_{uj}
+}{
+\sum_{k\in C_u}v_{uk}
+}
 +
 (1-\alpha)
-\frac{1}{\lvert C_u\rvert},
-$$
+\frac{
+1
+}{
+\lvert C_u\rvert
+}.
+```
 
 其中 $C_u$ 为合法候选集合，本次预研取 $\alpha=0.9$；若全部边际收益均为零，则退化为在 $C_u$ 上均匀采样。随后按照 $q(j\mid u)$ 无放回采样 $B_u$ 个物品，与锚点合并为固定长度的蒸馏集合：
 
-$$
+```math
 J_u^{AM}
 =
 A_u
 \cup
-\mathrm{Sample}_q(C_u,B_u).
-$$
+\mathrm{Sample}_q
+\left(
+C_u,\,
+B_u
+\right).
+```
 
 ### 2.3 保留 RCE-KD 的原始损失
 
 AM-RCE-KD 只改变第二部分蒸馏集合的构造，不修改教师目标分布、两个交叉熵损失及原有融合权重：
 
-$$
+```math
 \mathcal{L}
 =
 \mathcal{L}_{base}
@@ -135,9 +173,12 @@ $$
 \left[
 (1-\gamma_u)\mathcal{L}_1
 +
-\gamma_u\mathcal{L}_2(J_u^{AM})
+\gamma_u\mathcal{L}_2
+\left(
+J_u^{AM}
+\right)
 \right].
-$$
+```
 
 这样可以将收益明确归因于采样策略，并保留 RCE-KD 已有的理论结构和异构蒸馏鲁棒性。
 
@@ -184,7 +225,7 @@ AM-RCE-KD 在四项测试指标上均超过原始 RCE-KD，说明改进不仅提
 
 我还检查了对非均匀采样 CE 进行重要性校正的可能性。双边 log-Q 校正可将平均梯度余弦从 0.612 提高到 0.976，但使方差扩大约 73 倍；使用独立样本拟合的收缩系数 $0.101$ 虽然将梯度 MSE 降低 6.10%，正式训练后 NDCG@20 仍由 AM-RCE-KD 的 0.01969 降至 0.01912。该结果进一步表明，逼近完整 CE 梯度并不等价于改善 Top-K 排序，最终方案应保留当前有益的采样偏置。
 
-## 5. 贡献、可行性与局限
+## 5. 贡献
 
 本研究的贡献可以概括为：
 
